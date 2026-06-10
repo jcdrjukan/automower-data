@@ -179,11 +179,15 @@
     <div class="status-item">Total points: <span id="pointCount">—</span></div>
     <div class="status-item">Last update: <span id="lastUpdate">—</span></div>
   </div>
-  <div class="controls">
+<div class="controls">
     <button id="btnTrack" class="active" onclick="showTrack()">Latest Track</button>
     <button id="btnHeat" onclick="showHeatmap()">Coverage Map</button>
     <button id="btnAll" onclick="showAll()">All Tracks</button>
     <button onclick="refreshData()">↻ Refresh</button>
+    <span style="width:1px;background:#2a4a2a;margin:0 4px;display:inline-block;height:20px;vertical-align:middle"></span>
+    <button id="btnSatellite" class="active" onclick="setMapType('satellite')">Satellite</button>
+    <button id="btnMap" onclick="setMapType('roadmap')">Map</button>
+    <button id="btnHybrid" onclick="setMapType('hybrid')">Hybrid</button>
   </div>
 </header>
 
@@ -308,6 +312,19 @@ function showHeatmap() {
     ]
   });
   overlays.push(heatmap);
+}
+
+ function setMapType(type) {
+  map.setMapTypeId(type);
+  ["btnSatellite","btnMap","btnHybrid"].forEach(b => {
+    document.getElementById(b).classList.remove("active");
+  });
+  const mapBtn = {
+    "satellite": "btnSatellite",
+    "roadmap": "btnMap",
+    "hybrid": "btnHybrid"
+  };
+  document.getElementById(mapBtn[type]).classList.add("active");
 }
 
 function showAll() {
