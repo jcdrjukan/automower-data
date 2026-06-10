@@ -207,56 +207,7 @@ const GARDEN_LAT = 59.8792;
 const GARDEN_LON = 8.5793;
 
 // Sample data for demo until real mowing sessions are logged
-const SAMPLE_DATA = [
-  {
-    timestamp: "2026-06-09T08:05:00+00:00",
-    activity: "MOWING",
-    positions: [
-      {latitude:59.87935,longitude:8.57925},{latitude:59.87932,longitude:8.57930},
-      {latitude:59.87928,longitude:8.57935},{latitude:59.87924,longitude:8.57940},
-      {latitude:59.87920,longitude:8.57938},{latitude:59.87916,longitude:8.57933},
-      {latitude:59.87913,longitude:8.57928},{latitude:59.87910,longitude:8.57922},
-      {latitude:59.87914,longitude:8.57918},{latitude:59.87918,longitude:8.57915},
-      {latitude:59.87922,longitude:8.57912},{latitude:59.87926,longitude:8.57910},
-      {latitude:59.87930,longitude:8.57914},{latitude:59.87934,longitude:8.57918},
-      {latitude:59.87937,longitude:8.57923},{latitude:59.87933,longitude:8.57928},
-      {latitude:59.87929,longitude:8.57932},{latitude:59.87925,longitude:8.57936},
-      {latitude:59.87921,longitude:8.57934},{latitude:59.87917,longitude:8.57930},
-    ]
-  },
-  {
-    timestamp: "2026-06-09T10:05:00+00:00",
-    activity: "MOWING",
-    positions: [
-      {latitude:59.87920,longitude:8.57910},{latitude:59.87924,longitude:8.57908},
-      {latitude:59.87928,longitude:8.57906},{latitude:59.87932,longitude:8.57910},
-      {latitude:59.87935,longitude:8.57915},{latitude:59.87932,longitude:8.57920},
-      {latitude:59.87928,longitude:8.57925},{latitude:59.87924,longitude:8.57929},
-      {latitude:59.87920,longitude:8.57926},{latitude:59.87916,longitude:8.57922},
-      {latitude:59.87913,longitude:8.57917},{latitude:59.87916,longitude:8.57912},
-      {latitude:59.87920,longitude:8.57908},{latitude:59.87924,longitude:8.57905},
-      {latitude:59.87928,longitude:8.57903},{latitude:59.87932,longitude:8.57907},
-      {latitude:59.87936,longitude:8.57912},{latitude:59.87933,longitude:8.57917},
-      {latitude:59.87929,longitude:8.57921},{latitude:59.87925,longitude:8.57924},
-    ]
-  },
-  {
-    timestamp: "2026-06-10T09:05:00+00:00",
-    activity: "MOWING",
-    positions: [
-      {latitude:59.87915,longitude:8.57935},{latitude:59.87918,longitude:8.57940},
-      {latitude:59.87922,longitude:8.57944},{latitude:59.87926,longitude:8.57941},
-      {latitude:59.87930,longitude:8.57937},{latitude:59.87934,longitude:8.57933},
-      {latitude:59.87931,longitude:8.57928},{latitude:59.87927,longitude:8.57924},
-      {latitude:59.87923,longitude:8.57920},{latitude:59.87919,longitude:8.57924},
-      {latitude:59.87915,longitude:8.57928},{latitude:59.87912,longitude:8.57933},
-      {latitude:59.87915,longitude:8.57938},{latitude:59.87919,longitude:8.57942},
-      {latitude:59.87923,longitude:8.57946},{latitude:59.87927,longitude:8.57943},
-      {latitude:59.87931,longitude:8.57939},{latitude:59.87935,longitude:8.57935},
-      {latitude:59.87932,longitude:8.57930},{latitude:59.87928,longitude:8.57926},
-    ]
-  }
-];
+const SAMPLE_DATA = [];
 
 let map, allData = [], currentMode = "track";
 let overlays = [];
