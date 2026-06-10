@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Automower Rjukan</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js" defer></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0f1a0f;
+    color: #d4e8d4;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    background: #0f1a0f;
+    border-bottom: 1px solid #1e3a1e;
+    flex-shrink: 0;
+    gap: 16px;
+    z-index: 10;
+  }
+
+  .title-block {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  h1 {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #7ec87e;
+  }
+
+  .subtitle {
+    font-size: 12px;
+    color: #4a7a4a;
+    letter-spacing: 0.04em;
+  }
+
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    font-size: 12px;
+  }
+
+  .status-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #4a7a4a;
+  }
+
+  .status-item span { color: #a0d0a0; }
+
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #2a5a2a;
+  }
+
+  .status-dot.active {
+    background: #5cdb5c;
+    box-shadow: 0 0 6px #5cdb5c88;
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .controls {
+    display: flex;
+    gap: 8px;
+  }
+
+  button {
+    padding: 6px 14px;
+    border-radius: 4px;
+    border: 1px solid #2a4a2a;
+    background: #162416;
+    color: #7ec87e;
+    font-size: 12px;
+    cursor: pointer;
+    letter-spacing: 0.04em;
+    transition: all 0.15s;
+  }
+
+  button:hover { background: #1e3a1e; border-color: #4a8a4a; }
+  button.active { background: #1e4a1e; border-color: #7ec87e; color: #b0e8b0; }
+
+  #map { flex: 1; }
+
+  .info-panel {
+    position: absolute;
+    bottom: 30px;
+    right: 20px;
+    z-index: 1000;
+    background: rgba(15, 26, 15, 0.92);
+    border: 1px solid #1e3a1e;
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-size: 12px;
+    min-width: 180px;
+    backdrop-filter: blur(4px);
+  }
+
+  .info-panel .label {
+    color: #4a7a4a;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 2px;
+  }
+
+  .info-panel .value {
+    color: #a0d0a0;
+    margin-bottom: 10px;
+    font-size: 13px;
+  }
+
+  .info-panel .value:last-child { margin-bottom: 0; }
+
+  .loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 2000;
+    text-align: center;
+    color: #4a7a4a;
+    font-size: 13px;
+    letter-spacing: 0.06em;
+  }
+
+  .loading-spinner {
+    width: 32px;
+    height: 32px;
+    border: 2px solid #1e3a1e;
+    border-top-color: #7ec87e;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 12px;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+<!-- REPLACE THE KEY BELOW WITH YOUR GOOGLE MAPS API KEY -->
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAFRrHTdjX7Ri9FdjqdZRvIxHHxbA4gggQ&libraries=visualization"></script>
+</head>
+<body>
+
+<header>
+  <div class="title-block">
+    <h1>Automower Rjukan</h1>
+    <div class="subtitle">Position History</div>
+  </div>
+  <div class="status-bar">
+    <div class="status-item">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">Loading…</span>
+    </div>
+    <div class="status-item">Sessions: <span id="sessionCount">—</span></div>
+    <div class="status-item">Total points: <span id="pointCount">—</span></div>
+    <div class="status-item">Last update: <span id="lastUpdate">—</span></div>
+  </div>
+  <div class="controls">
+    <button id="btnTrack" class="active" onclick="showTrack()">Latest Track</button>
+    <button id="btnHeat" onclick="showHeatmap()">Coverage Map</button>
+    <button id="btnAll" onclick="showAll()">All Tracks</button>
+    <button onclick="refreshData()">↻ Refresh</button>
+  </div>
+</header>
+
+<div id="map">
+  <div class="loading" id="loading">
+    <div class="loading-spinner"></div>
+    Loading position data…
+  </div>
+</div>
+
+<div class="info-panel" id="infoPanel" style="display:none">
+  <div class="label">Current View</div>
+  <div class="value" id="viewDescription">Latest track</div>
+  <div class="label">Garden Centre</div>
+  <div class="value">59.8792°N, 8.5793°E</div>
+</div>
+
+<script>
+const DATA_URL = "https://raw.githubusercontent.com/jcdrjukan/automower-data/main/mower_positions.json";
+const GARDEN_LAT = 59.8792;
+const GARDEN_LON = 8.5793;
+
+// Sample data for demo until real mowing sessions are logged
+const SAMPLE_DATA = [
+  {
+    timestamp: "2026-06-09T08:05:00+00:00",
+    activity: "MOWING",
+    positions: [
+      {latitude:59.87935,longitude:8.57925},{latitude:59.87932,longitude:8.57930},
+      {latitude:59.87928,longitude:8.57935},{latitude:59.87924,longitude:8.57940},
+      {latitude:59.87920,longitude:8.57938},{latitude:59.87916,longitude:8.57933},
+      {latitude:59.87913,longitude:8.57928},{latitude:59.87910,longitude:8.57922},
+      {latitude:59.87914,longitude:8.57918},{latitude:59.87918,longitude:8.57915},
+      {latitude:59.87922,longitude:8.57912},{latitude:59.87926,longitude:8.57910},
+      {latitude:59.87930,longitude:8.57914},{latitude:59.87934,longitude:8.57918},
+      {latitude:59.87937,longitude:8.57923},{latitude:59.87933,longitude:8.57928},
+      {latitude:59.87929,longitude:8.57932},{latitude:59.87925,longitude:8.57936},
+      {latitude:59.87921,longitude:8.57934},{latitude:59.87917,longitude:8.57930},
+    ]
+  },
+  {
+    timestamp: "2026-06-09T10:05:00+00:00",
+    activity: "MOWING",
+    positions: [
+      {latitude:59.87920,longitude:8.57910},{latitude:59.87924,longitude:8.57908},
+      {latitude:59.87928,longitude:8.57906},{latitude:59.87932,longitude:8.57910},
+      {latitude:59.87935,longitude:8.57915},{latitude:59.87932,longitude:8.57920},
+      {latitude:59.87928,longitude:8.57925},{latitude:59.87924,longitude:8.57929},
+      {latitude:59.87920,longitude:8.57926},{latitude:59.87916,longitude:8.57922},
+      {latitude:59.87913,longitude:8.57917},{latitude:59.87916,longitude:8.57912},
+      {latitude:59.87920,longitude:8.57908},{latitude:59.87924,longitude:8.57905},
+      {latitude:59.87928,longitude:8.57903},{latitude:59.87932,longitude:8.57907},
+      {latitude:59.87936,longitude:8.57912},{latitude:59.87933,longitude:8.57917},
+      {latitude:59.87929,longitude:8.57921},{latitude:59.87925,longitude:8.57924},
+    ]
+  },
+  {
+    timestamp: "2026-06-10T09:05:00+00:00",
+    activity: "MOWING",
+    positions: [
+      {latitude:59.87915,longitude:8.57935},{latitude:59.87918,longitude:8.57940},
+      {latitude:59.87922,longitude:8.57944},{latitude:59.87926,longitude:8.57941},
+      {latitude:59.87930,longitude:8.57937},{latitude:59.87934,longitude:8.57933},
+      {latitude:59.87931,longitude:8.57928},{latitude:59.87927,longitude:8.57924},
+      {latitude:59.87923,longitude:8.57920},{latitude:59.87919,longitude:8.57924},
+      {latitude:59.87915,longitude:8.57928},{latitude:59.87912,longitude:8.57933},
+      {latitude:59.87915,longitude:8.57938},{latitude:59.87919,longitude:8.57942},
+      {latitude:59.87923,longitude:8.57946},{latitude:59.87927,longitude:8.57943},
+      {latitude:59.87931,longitude:8.57939},{latitude:59.87935,longitude:8.57935},
+      {latitude:59.87932,longitude:8.57930},{latitude:59.87928,longitude:8.57926},
+    ]
+  }
+];
+
+let map, allData = [], currentMode = "track";
+let overlays = [];
+
+const TRACK_COLORS = ["#5cdb5c","#4ab84a","#3a963a","#2a742a","#1a521a"];
+
+function initMap() {
+  map = new google.maps.Map(document.getElementById("map"), {
+    center: { lat: GARDEN_LAT, lng: GARDEN_LON },
+    zoom: 20,
+    mapTypeId: "satellite",
+    tilt: 0,
+    disableDefaultUI: false,
+    mapTypeControl: false,
+    streetViewControl: false,
+    fullscreenControl: true,
+    zoomControl: true,
+    styles: []
+  });
+}
+
+function clearOverlays() {
+  overlays.forEach(o => o.setMap(null));
+  overlays = [];
+}
+
+function showTrack() {
+  clearOverlays();
+  currentMode = "track";
+  setActiveButton("btnTrack");
+  document.getElementById("viewDescription").textContent = "Latest mowing session";
+  if (allData.length === 0) return;
+
+  const latest = allData[allData.length - 1];
+  const coords = latest.positions.map(p => ({ lat: p.latitude, lng: p.longitude }));
+
+  const line = new google.maps.Polyline({
+    path: coords,
+    geodesic: true,
+    strokeColor: "#5cdb5c",
+    strokeOpacity: 0.9,
+    strokeWeight: 2.5,
+    map: map
+  });
+  overlays.push(line);
+
+  // Start marker
+  if (coords.length > 0) {
+    const startMarker = new google.maps.Marker({
+      position: coords[0],
+      map: map,
+      title: "Start",
+      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 5,
+              fillColor: "#7ec87e", fillOpacity: 1, strokeColor: "#fff", strokeWeight: 1 }
+    });
+    const endMarker = new google.maps.Marker({
+      position: coords[coords.length - 1],
+      map: map,
+      title: "Latest position",
+      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 5,
+              fillColor: "#ff9944", fillOpacity: 1, strokeColor: "#fff", strokeWeight: 1 }
+    });
+    overlays.push(startMarker, endMarker);
+
+    // Fit bounds
+    const bounds = new google.maps.LatLngBounds();
+    coords.forEach(c => bounds.extend(c));
+    map.fitBounds(bounds, 60);
+  }
+}
+
+function showHeatmap() {
+  clearOverlays();
+  currentMode = "heat";
+  setActiveButton("btnHeat");
+  document.getElementById("viewDescription").textContent = "Coverage heatmap (all sessions)";
+  if (allData.length === 0) return;
+
+  const points = [];
+  allData.forEach(session => {
+    session.positions.forEach(p => {
+      points.push(new google.maps.LatLng(p.latitude, p.longitude));
+    });
+  });
+
+  const heatmap = new google.maps.visualization.HeatmapLayer({
+    data: points,
+    map: map,
+    radius: 15,
+    opacity: 0.8,
+    gradient: [
+      "rgba(0,0,0,0)",
+      "rgba(26,58,26,1)",
+      "rgba(45,107,45,1)",
+      "rgba(74,170,74,1)",
+      "rgba(126,207,126,1)",
+      "rgba(255,255,255,1)"
+    ]
+  });
+  overlays.push(heatmap);
+}
+
+function showAll() {
+  clearOverlays();
+  currentMode = "all";
+  setActiveButton("btnAll");
+  document.getElementById("viewDescription").textContent = `All ${allData.length} sessions`;
+  if (allData.length === 0) return;
+
+  const bounds = new google.maps.LatLngBounds();
+  allData.forEach((session, i) => {
+    const coords = session.positions.map(p => ({ lat: p.latitude, lng: p.longitude }));
+    const color = TRACK_COLORS[i % TRACK_COLORS.length];
+    const line = new google.maps.Polyline({
+      path: coords,
+      geodesic: true,
+      strokeColor: color,
+      strokeOpacity: 0.6,
+      strokeWeight: 1.5,
+      map: map
+    });
+    overlays.push(line);
+    coords.forEach(c => bounds.extend(c));
+  });
+  map.fitBounds(bounds, 60);
+}
+
+function setActiveButton(id) {
+  ["btnTrack","btnHeat","btnAll"].forEach(b => {
+    document.getElementById(b).classList.toggle("active", b === id);
+  });
+}
+
+function updateStats(data) {
+  const totalPoints = data.reduce((sum, s) => sum + s.positions.length, 0);
+  document.getElementById("sessionCount").textContent = data.length;
+  document.getElementById("pointCount").textContent = totalPoints.toLocaleString();
+  if (data.length > 0) {
+    const last = new Date(data[data.length - 1].timestamp);
+    document.getElementById("lastUpdate").textContent = last.toLocaleString("no-NO", {
+      day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"
+    });
+    document.getElementById("statusDot").classList.add("active");
+    document.getElementById("statusText").textContent = "Data loaded";
+  } else {
+    document.getElementById("statusText").textContent = "No mowing sessions yet";
+  }
+}
+
+async function refreshData() {
+  document.getElementById("statusText").textContent = "Refreshing…";
+  document.getElementById("statusDot").classList.remove("active");
+  try {
+    const res = await fetch(DATA_URL + "?t=" + Date.now());
+    if (res.ok) {
+      const data = await res.json();
+      allData = data.length > 0 ? data : SAMPLE_DATA;
+      if (data.length === 0) document.getElementById("statusText").textContent = "Using sample data";
+    } else {
+      allData = SAMPLE_DATA;
+      document.getElementById("statusText").textContent = "Using sample data";
+    }
+  } catch(e) {
+    allData = SAMPLE_DATA;
+    document.getElementById("statusText").textContent = "Using sample data";
+  }
+  updateStats(allData);
+  document.getElementById("loading").style.display = "none";
+  document.getElementById("infoPanel").style.display = "block";
+  if (currentMode === "track") showTrack();
+  else if (currentMode === "heat") showHeatmap();
+  else showAll();
+}
+
+// Wait for Google Maps to load then init
+window.addEventListener("load", () => {
+  initMap();
+  refreshData();
+});
+</script>
+</body>
+</html>
