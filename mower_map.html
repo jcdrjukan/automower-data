@@ -186,8 +186,8 @@
     <button id="btnAll" onclick="showAll()">All Tracks</button>
     <button onclick="refreshData()">↻ Refresh</button>
     <span style="width:1px;background:#2a4a2a;margin:0 4px;display:inline-block;height:20px;vertical-align:middle"></span>
-    <button id="btnSatellite" class="active" onclick="setMapType('satellite')">Satellite</button>
-    <button id="btnMap" onclick="setMapType('roadmap')">Map</button>
+    <button id="btnSatellite" class="" onclick="setMapType('satellite')">Satellite</button>
+    <button id="btnMap" class="active" onclick="setMapType('roadmap')">Map</button>
     <button id="btnHybrid" onclick="setMapType('hybrid')">Hybrid</button>
   </div>
 </header>
@@ -223,7 +223,7 @@ function initMap() {
   map = new google.maps.Map(document.getElementById("map"), {
     center: { lat: GARDEN_LAT, lng: GARDEN_LON },
     zoom: 20,
-    mapTypeId: "satellite",
+    mapTypeId: "roadmap",
     tilt: 0,
     disableDefaultUI: false,
     mapTypeControl: false,
