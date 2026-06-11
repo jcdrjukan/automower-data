@@ -5,10 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Automower Rjukan</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>☘️</text></svg>">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js" defer></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     background: #0f1a0f;
@@ -18,7 +16,6 @@
     flex-direction: column;
     overflow: hidden;
   }
-
   header {
     display: flex;
     align-items: center;
@@ -30,135 +27,38 @@
     gap: 16px;
     z-index: 10;
   }
-
-  .title-block {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-  }
-
-  h1 {
-    font-size: 15px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: #7ec87e;
-  }
-
-  .subtitle {
-    font-size: 12px;
-    color: #4a7a4a;
-    letter-spacing: 0.04em;
-  }
-
-  .status-bar {
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    font-size: 12px;
-  }
-
-  .status-item {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    color: #4a7a4a;
-  }
-
+  .title-block { display: flex; align-items: baseline; gap: 10px; }
+  h1 { font-size: 15px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #7ec87e; }
+  .subtitle { font-size: 12px; color: #4a7a4a; letter-spacing: 0.04em; }
+  .status-bar { display: flex; align-items: center; gap: 20px; font-size: 12px; }
+  .status-item { display: flex; align-items: center; gap: 6px; color: #4a7a4a; }
   .status-item span { color: #a0d0a0; }
-
-  .status-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: #2a5a2a;
-  }
-
-  .status-dot.active {
-    background: #5cdb5c;
-    box-shadow: 0 0 6px #5cdb5c88;
-    animation: pulse 2s infinite;
-  }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-  }
-
-  .controls {
-    display: flex;
-    gap: 8px;
-  }
-
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #2a5a2a; }
+  .status-dot.active { background: #5cdb5c; box-shadow: 0 0 6px #5cdb5c88; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .divider { width: 1px; background: #2a4a2a; height: 20px; display: inline-block; margin: 0 4px; }
   button {
-    padding: 6px 14px;
-    border-radius: 4px;
-    border: 1px solid #2a4a2a;
-    background: #162416;
-    color: #7ec87e;
-    font-size: 12px;
-    cursor: pointer;
-    letter-spacing: 0.04em;
-    transition: all 0.15s;
+    padding: 6px 14px; border-radius: 4px; border: 1px solid #2a4a2a;
+    background: #162416; color: #7ec87e; font-size: 12px; cursor: pointer;
+    letter-spacing: 0.04em; transition: all 0.15s;
   }
-
   button:hover { background: #1e3a1e; border-color: #4a8a4a; }
   button.active { background: #1e4a1e; border-color: #7ec87e; color: #b0e8b0; }
-
+  button.export { border-color: #4a6a2a; color: #a0c87e; }
+  button.export:hover { background: #1e3a0e; border-color: #7ea84e; }
   #map { flex: 1; }
-
   .info-panel {
-    position: absolute;
-    bottom: 30px;
-    right: 20px;
-    z-index: 1000;
-    background: rgba(15, 26, 15, 0.92);
-    border: 1px solid #1e3a1e;
-    border-radius: 6px;
-    padding: 12px 16px;
-    font-size: 12px;
-    min-width: 180px;
-    backdrop-filter: blur(4px);
+    position: absolute; bottom: 30px; right: 20px; z-index: 1000;
+    background: rgba(15,26,15,0.92); border: 1px solid #1e3a1e;
+    border-radius: 6px; padding: 12px 16px; font-size: 12px;
+    min-width: 180px; backdrop-filter: blur(4px);
   }
-
-  .info-panel .label {
-    color: #4a7a4a;
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-bottom: 2px;
-  }
-
-  .info-panel .value {
-    color: #a0d0a0;
-    margin-bottom: 10px;
-    font-size: 13px;
-  }
-
+  .info-panel .label { color: #4a7a4a; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px; }
+  .info-panel .value { color: #a0d0a0; margin-bottom: 10px; font-size: 13px; }
   .info-panel .value:last-child { margin-bottom: 0; }
-
-  .loading {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    z-index: 2000;
-    text-align: center;
-    color: #4a7a4a;
-    font-size: 13px;
-    letter-spacing: 0.06em;
-  }
-
-  .loading-spinner {
-    width: 32px;
-    height: 32px;
-    border: 2px solid #1e3a1e;
-    border-top-color: #7ec87e;
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-    margin: 0 auto 12px;
-  }
-
+  .loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); z-index: 2000; text-align: center; color: #4a7a4a; font-size: 13px; letter-spacing: 0.06em; }
+  .loading-spinner { width: 32px; height: 32px; border: 2px solid #1e3a1e; border-top-color: #7ec87e; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 12px; }
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 <!-- REPLACE THE KEY BELOW WITH YOUR GOOGLE MAPS API KEY -->
@@ -180,15 +80,18 @@
     <div class="status-item">Total points: <span id="pointCount">—</span></div>
     <div class="status-item">Last update: <span id="lastUpdate">—</span></div>
   </div>
-<div class="controls">
+  <div class="controls">
     <button id="btnTrack" class="active" onclick="showTrack()">Latest Track</button>
     <button id="btnHeat" onclick="showHeatmap()">Coverage Map</button>
     <button id="btnAll" onclick="showAll()">All Tracks</button>
     <button onclick="refreshData()">↻ Refresh</button>
-    <span style="width:1px;background:#2a4a2a;margin:0 4px;display:inline-block;height:20px;vertical-align:middle"></span>
-    <button id="btnSatellite" class="" onclick="setMapType('satellite')">Satellite</button>
+    <div class="divider"></div>
     <button id="btnMap" class="active" onclick="setMapType('roadmap')">Map</button>
+    <button id="btnSatellite" onclick="setMapType('satellite')">Satellite</button>
     <button id="btnHybrid" onclick="setMapType('hybrid')">Hybrid</button>
+    <div class="divider"></div>
+    <button class="export" onclick="exportTracksSVG()">↓ Tracks SVG</button>
+    <button class="export" onclick="exportHeatmapSVG()">↓ Heatmap SVG</button>
   </div>
 </header>
 
@@ -210,13 +113,10 @@
 const DATA_URL = "https://raw.githubusercontent.com/jcdrjukan/automower-data/main/mower_positions.json";
 const GARDEN_LAT = 59.8792;
 const GARDEN_LON = 8.5793;
-
-// Sample data for demo until real mowing sessions are logged
 const SAMPLE_DATA = [];
 
 let map, allData = [], currentMode = "track";
 let overlays = [];
-
 const TRACK_COLORS = ["#5cdb5c","#4ab84a","#3a963a","#2a742a","#1a521a"];
 
 function initMap() {
@@ -225,12 +125,10 @@ function initMap() {
     zoom: 20,
     mapTypeId: "roadmap",
     tilt: 0,
-    disableDefaultUI: false,
     mapTypeControl: false,
     streetViewControl: false,
     fullscreenControl: true,
-    zoomControl: true,
-    styles: []
+    zoomControl: true
   });
 }
 
@@ -245,39 +143,22 @@ function showTrack() {
   setActiveButton("btnTrack");
   document.getElementById("viewDescription").textContent = "Latest mowing session";
   if (allData.length === 0) return;
-
   const latest = allData[allData.length - 1];
   const coords = latest.positions.map(p => ({ lat: p.latitude, lng: p.longitude }));
-
   const line = new google.maps.Polyline({
-    path: coords,
-    geodesic: true,
-    strokeColor: "#5cdb5c",
-    strokeOpacity: 0.9,
-    strokeWeight: 2.5,
-    map: map
+    path: coords, geodesic: true,
+    strokeColor: "#5cdb5c", strokeOpacity: 0.9, strokeWeight: 2.5, map: map
   });
   overlays.push(line);
-
-  // Start marker
   if (coords.length > 0) {
-    const startMarker = new google.maps.Marker({
-      position: coords[0],
-      map: map,
-      title: "Start",
-      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 5,
-              fillColor: "#7ec87e", fillOpacity: 1, strokeColor: "#fff", strokeWeight: 1 }
-    });
-    const endMarker = new google.maps.Marker({
-      position: coords[coords.length - 1],
-      map: map,
-      title: "Latest position",
-      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 5,
-              fillColor: "#ff9944", fillOpacity: 1, strokeColor: "#fff", strokeWeight: 1 }
-    });
-    overlays.push(startMarker, endMarker);
-
-    // Fit bounds
+    overlays.push(new google.maps.Marker({
+      position: coords[0], map: map, title: "Start",
+      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 5, fillColor: "#7ec87e", fillOpacity: 1, strokeColor: "#fff", strokeWeight: 1 }
+    }));
+    overlays.push(new google.maps.Marker({
+      position: coords[coords.length - 1], map: map, title: "Latest position",
+      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 5, fillColor: "#ff9944", fillOpacity: 1, strokeColor: "#fff", strokeWeight: 1 }
+    }));
     const bounds = new google.maps.LatLngBounds();
     coords.forEach(c => bounds.extend(c));
     map.fitBounds(bounds, 60);
@@ -290,42 +171,15 @@ function showHeatmap() {
   setActiveButton("btnHeat");
   document.getElementById("viewDescription").textContent = "Coverage heatmap (all sessions)";
   if (allData.length === 0) return;
-
   const points = [];
   allData.forEach(session => {
-    session.positions.forEach(p => {
-      points.push(new google.maps.LatLng(p.latitude, p.longitude));
-    });
+    session.positions.forEach(p => points.push(new google.maps.LatLng(p.latitude, p.longitude)));
   });
-
   const heatmap = new google.maps.visualization.HeatmapLayer({
-    data: points,
-    map: map,
-    radius: 15,
-    opacity: 0.8,
-    gradient: [
-      "rgba(0,0,0,0)",
-      "rgba(26,58,26,1)",
-      "rgba(45,107,45,1)",
-      "rgba(74,170,74,1)",
-      "rgba(126,207,126,1)",
-      "rgba(255,255,255,1)"
-    ]
+    data: points, map: map, radius: 15, opacity: 0.8,
+    gradient: ["rgba(0,0,0,0)","rgba(26,58,26,1)","rgba(45,107,45,1)","rgba(74,170,74,1)","rgba(126,207,126,1)","rgba(255,255,255,1)"]
   });
   overlays.push(heatmap);
-}
-
- function setMapType(type) {
-  map.setMapTypeId(type);
-  ["btnSatellite","btnMap","btnHybrid"].forEach(b => {
-    document.getElementById(b).classList.remove("active");
-  });
-  const mapBtn = {
-    "satellite": "btnSatellite",
-    "roadmap": "btnMap",
-    "hybrid": "btnHybrid"
-  };
-  document.getElementById(mapBtn[type]).classList.add("active");
 }
 
 function showAll() {
@@ -334,18 +188,13 @@ function showAll() {
   setActiveButton("btnAll");
   document.getElementById("viewDescription").textContent = `All ${allData.length} sessions`;
   if (allData.length === 0) return;
-
   const bounds = new google.maps.LatLngBounds();
   allData.forEach((session, i) => {
     const coords = session.positions.map(p => ({ lat: p.latitude, lng: p.longitude }));
-    const color = TRACK_COLORS[i % TRACK_COLORS.length];
     const line = new google.maps.Polyline({
-      path: coords,
-      geodesic: true,
-      strokeColor: color,
-      strokeOpacity: 0.6,
-      strokeWeight: 1.5,
-      map: map
+      path: coords, geodesic: true,
+      strokeColor: TRACK_COLORS[i % TRACK_COLORS.length],
+      strokeOpacity: 0.6, strokeWeight: 1.5, map: map
     });
     overlays.push(line);
     coords.forEach(c => bounds.extend(c));
@@ -359,15 +208,101 @@ function setActiveButton(id) {
   });
 }
 
+function setMapType(type) {
+  map.setMapTypeId(type);
+  ["btnMap","btnSatellite","btnHybrid"].forEach(b => document.getElementById(b).classList.remove("active"));
+  const btnMap = { roadmap: "btnMap", satellite: "btnSatellite", hybrid: "btnHybrid" };
+  document.getElementById(btnMap[type]).classList.add("active");
+}
+
+// --- SVG Export ---
+
+function getBounds() {
+  const allPoints = allData.flatMap(s => s.positions);
+  if (allPoints.length === 0) return null;
+  const lats = allPoints.map(p => p.latitude);
+  const lons = allPoints.map(p => p.longitude);
+  return { minLat: Math.min(...lats), maxLat: Math.max(...lats), minLon: Math.min(...lons), maxLon: Math.max(...lons) };
+}
+
+function toSVGCoords(lat, lon, bounds, W, H, pad) {
+  const x = pad + (lon - bounds.minLon) / (bounds.maxLon - bounds.minLon) * W;
+  const y = pad + (1 - (lat - bounds.minLat) / (bounds.maxLat - bounds.minLat)) * H;
+  return { x: x.toFixed(2), y: y.toFixed(2) };
+}
+
+function exportTracksSVG() {
+  const bounds = getBounds();
+  if (!bounds) { alert("No data to export yet!"); return; }
+  const PAD = 40, W = 800, H = 800;
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W+PAD*2} ${H+PAD*2}" width="${W+PAD*2}" height="${H+PAD*2}">\n`;
+  svg += `  <rect width="100%" height="100%" fill="none"/>\n`;
+  svg += `  <!-- Automower Rjukan — All Tracks -->\n`;
+  svg += `  <!-- Bounds: ${bounds.minLat.toFixed(6)},${bounds.minLon.toFixed(6)} to ${bounds.maxLat.toFixed(6)},${bounds.maxLon.toFixed(6)} -->\n`;
+  allData.forEach((session, i) => {
+    const color = TRACK_COLORS[i % TRACK_COLORS.length];
+    const pts = session.positions.map(p => {
+      const c = toSVGCoords(p.latitude, p.longitude, bounds, W, H, PAD);
+      return `${c.x},${c.y}`;
+    }).join(" ");
+    const date = new Date(session.timestamp).toISOString().slice(0,16).replace("T"," ");
+    svg += `  <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-opacity="0.8" stroke-linecap="round" stroke-linejoin="round"/> <!-- ${date} -->\n`;
+  });
+  svg += `</svg>`;
+  downloadSVG(svg, "automower_tracks.svg");
+}
+
+function exportHeatmapSVG() {
+  const bounds = getBounds();
+  if (!bounds) { alert("No data to export yet!"); return; }
+  const PAD = 40, W = 800, H = 800, CELL = 8;
+  const grid = {};
+  allData.forEach(session => {
+    session.positions.forEach(p => {
+      const c = toSVGCoords(p.latitude, p.longitude, bounds, W, H, PAD);
+      const gx = Math.floor(parseFloat(c.x) / CELL);
+      const gy = Math.floor(parseFloat(c.y) / CELL);
+      const key = `${gx},${gy}`;
+      grid[key] = (grid[key] || 0) + 1;
+    });
+  });
+  const maxVal = Math.max(...Object.values(grid));
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W+PAD*2} ${H+PAD*2}" width="${W+PAD*2}" height="${H+PAD*2}">\n`;
+  svg += `  <rect width="100%" height="100%" fill="none"/>\n`;
+  svg += `  <!-- Automower Rjukan — Coverage Heatmap -->\n`;
+  Object.entries(grid).forEach(([key, count]) => {
+    const [gx, gy] = key.split(",").map(Number);
+    const intensity = count / maxVal;
+    const cx = gx * CELL + CELL / 2;
+    const cy = gy * CELL + CELL / 2;
+    const r = Math.round(CELL * 0.7);
+    let fill;
+    if (intensity < 0.33) fill = `rgba(45,107,45,${(intensity/0.33).toFixed(2)})`;
+    else if (intensity < 0.66) fill = `rgba(74,170,74,${((intensity-0.33)/0.33).toFixed(2)})`;
+    else fill = `rgba(200,240,200,${((intensity-0.66)/0.34).toFixed(2)})`;
+    svg += `  <circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}"/>\n`;
+  });
+  svg += `</svg>`;
+  downloadSVG(svg, "automower_heatmap.svg");
+}
+
+function downloadSVG(svgContent, filename) {
+  const blob = new Blob([svgContent], { type: "image/svg+xml" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// --- Stats & Data ---
+
 function updateStats(data) {
   const totalPoints = data.reduce((sum, s) => sum + s.positions.length, 0);
   document.getElementById("sessionCount").textContent = data.length;
   document.getElementById("pointCount").textContent = totalPoints.toLocaleString();
   if (data.length > 0) {
     const last = new Date(data[data.length - 1].timestamp);
-    document.getElementById("lastUpdate").textContent = last.toLocaleString("no-NO", {
-      day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"
-    });
+    document.getElementById("lastUpdate").textContent = last.toLocaleString("no-NO", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
     document.getElementById("statusDot").classList.add("active");
     document.getElementById("statusText").textContent = "Data loaded";
   } else {
@@ -383,14 +318,14 @@ async function refreshData() {
     if (res.ok) {
       const data = await res.json();
       allData = data.length > 0 ? data : SAMPLE_DATA;
-      if (data.length === 0) document.getElementById("statusText").textContent = "Using sample data";
+      if (data.length === 0) document.getElementById("statusText").textContent = "No sessions yet";
     } else {
       allData = SAMPLE_DATA;
-      document.getElementById("statusText").textContent = "Using sample data";
+      document.getElementById("statusText").textContent = "Could not load data";
     }
   } catch(e) {
     allData = SAMPLE_DATA;
-    document.getElementById("statusText").textContent = "Using sample data";
+    document.getElementById("statusText").textContent = "Could not load data";
   }
   updateStats(allData);
   document.getElementById("loading").style.display = "none";
@@ -400,7 +335,6 @@ async function refreshData() {
   else showAll();
 }
 
-// Wait for Google Maps to load then init
 window.addEventListener("load", () => {
   initMap();
   refreshData();
