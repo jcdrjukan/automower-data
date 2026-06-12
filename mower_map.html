@@ -144,7 +144,7 @@
   }
 </style>
 <!-- REPLACE THE KEY BELOW WITH YOUR GOOGLE MAPS API KEY -->
-<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAFRrHTdjX7Ri9FdjqdZRvIxHHxbA4gggQ&libraries=visualization"></script>
+<script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAFRrHTdjX7Ri9FdjqdZRvIxHHxbA4gggQ&libraries=visualization"></script>
 </head>
 <body>
 
@@ -501,8 +501,10 @@ try {
 }
 
 window.addEventListener("load", () => {
-  initMap();
-  setTimeout(refreshData, 500);
+  setTimeout(() => {
+    initMap();
+    refreshData();
+  }, 1000);
 });
 </script>
 </body>
