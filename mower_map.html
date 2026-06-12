@@ -465,8 +465,11 @@ async function refreshData() {
   document.getElementById("statusText").textContent = "Refreshing…";
   document.getElementById("mStatusText").textContent = "Refreshing…";
   document.getElementById("statusDot").classList.remove("active");
-  try {
-    const res = await fetch(DATA_URL + "?t=" + Date.now());
+try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(DATA_URL + "?t=" + Date.now(), { signal: controller.signal });
+    clearTimeout(timeout);
     if (res.ok) {
       const data = await res.json();
       allData = data;
