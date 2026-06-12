@@ -475,12 +475,13 @@ async function refreshData() {
         document.getElementById("mStatusText").textContent = "No sessions yet";
       }
     } else {
-      document.getElementById("statusText").textContent = "Could not load data";
-      document.getElementById("mStatusText").textContent = "Could not load data";
+      document.getElementById("statusText").textContent = "HTTP " + res.status + " error";
+      document.getElementById("mStatusText").textContent = "HTTP " + res.status + " error";
     }
   } catch(e) {
-    document.getElementById("statusText").textContent = "Could not load data";
-    document.getElementById("mStatusText").textContent = "Could not load data";
+    document.getElementById("statusText").textContent = "Error: " + e.message;
+    document.getElementById("mStatusText").textContent = "Error: " + e.message;
+    console.error("Fetch error:", e);
   }
   updateStats(allData);
   document.getElementById("loading").style.display = "none";
