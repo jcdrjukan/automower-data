@@ -171,7 +171,7 @@ function initMap() {
   map = L.map("map", { center: [GARDEN_LAT, GARDEN_LON], zoom: 19, maxZoom: 22, zoomControl: true });
 
   osmLayer = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: "© OpenStreetMap", maxZoom: 19, maxNativeZoom: 19, crossOrigin: true
+    attribution: "© OpenStreetMap", maxZoom: 22, maxNativeZoom: 19, crossOrigin: true
   });
 
   satLayer = L.tileLayer("https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", {
@@ -208,8 +208,9 @@ function showHeatmap() {
   setActiveBtn("btnHeat", "mBtnHeat");
   if (allData.length === 0) return;
   const points = allData.flatMap(s => s.positions.map(p => [p.latitude, p.longitude, 1]));
-  const heat = L.heatLayer(points, { radius: 12, blur: 8, maxZoom: 21,
-    gradient: { 0.0:"#0000ff", 0.25:"#00ffff", 0.5:"#00ff00", 0.75:"#ffff00", 1.0:"#ff0000" }
+  const heat = L.heatLayer(points, { 
+    radius: 15, blur: 20, maxZoom: 22, max: 5.0,
+    gradient: { 0.0:"#0000ff", 0.3:"#00ffff", 0.5:"#00ff00", 0.7:"#ffff00", 1.0:"#ff0000" }
   }).addTo(map);
   layers.push(heat);
 }
