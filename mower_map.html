@@ -30,6 +30,12 @@
   .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #2a5a2a; }
   .status-dot.active { background: #5cdb5c; box-shadow: 0 0 6px #5cdb5c88; animation: pulse 2s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .mower-status {
+    display: flex; align-items: center; gap: 8px; font-size: 11px;
+    background: #162416; border: 1px solid #2a4a2a; border-radius: 4px;
+    padding: 4px 10px;
+  }
+  .mower-status span { color: #a0d0a0; }
   .controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .divider { width: 1px; background: #2a4a2a; height: 18px; margin: 0 2px; }
   button {
@@ -40,18 +46,19 @@
   button:hover { background: #1e3a1e; border-color: #4a8a4a; }
   button.active { background: #1e4a1e; border-color: #7ec87e; color: #b0e8b0; }
   button.export { border-color: #4a6a2a; color: #a0c87e; }
-  #map { flex: 1; background: #0a140a; }
+  #map { flex: 1; background: #0a140a; position: relative; }
 
   /* Mobile */
   .mobile-status {
     display: none; position: absolute; bottom: 0; left: 0; right: 0; z-index: 1000;
-    background: rgba(15,26,15,0.92); border-top: 1px solid #1e3a1e;
+    background: rgba(15,26,15,0.95); border-top: 1px solid #1e3a1e;
     padding: 8px 16px; font-size: 11px; color: #4a7a4a;
-    align-items: center; justify-content: space-between;
+    flex-direction: column; gap: 4px;
   }
+  .mobile-status-row { display: flex; justify-content: space-between; align-items: center; }
   .mobile-status span { color: #a0d0a0; }
   .fab {
-    display: none; position: absolute; bottom: 48px; right: 16px; z-index: 1001;
+    display: none; position: absolute; bottom: 72px; right: 16px; z-index: 1001;
     width: 48px; height: 48px; border-radius: 50%;
     background: #1e4a1e; border: 1px solid #7ec87e;
     color: #7ec87e; font-size: 22px; cursor: pointer;
@@ -86,7 +93,6 @@
     .slide-menu { display: block !important; }
   }
 
-  /* Leaflet overrides */
   .leaflet-control-attribution { background: rgba(15,26,15,0.8) !important; color: #3a5a3a !important; font-size: 10px !important; }
   .leaflet-control-attribution a { color: #4a7a4a !important; }
   .leaflet-control-zoom a { background: #162416 !important; color: #7ec87e !important; border-color: #2a4a2a !important; }
@@ -108,11 +114,18 @@
     <div class="status-item">Points: <span id="pointCount">—</span></div>
     <div class="status-item">Updated: <span id="lastUpdate">—</span></div>
   </div>
+  <div class="mower-status">
+    <span id="mowerActivity">—</span>
+    <span>·</span>
+    🔋 <span id="mowerBattery">—</span>
+    <span>·</span>
+    <span id="mowerUpdated" style="color:#4a7a4a">—</span>
+  </div>
   <div class="controls">
     <button id="btnTrack" onclick="showTrack()">Latest Track</button>
     <button id="btnHeat" onclick="showHeatmap()">Coverage Map</button>
     <button id="btnAll" class="active" onclick="showAll()">All Tracks</button>
-    <button onclick="refreshData()">↻ Refresh</button>
+    <button onclick="refreshData();refreshMowerStatus()">↻ Refresh</button>
     <div class="divider"></div>
     <button id="btnOSM" class="active" onclick="setMapType('osm')">Map</button>
     <button id="btnSat" onclick="setMapType('satellite')">Satellite</button>
@@ -122,10 +135,16 @@
   </div>
 </header>
 
-<div id="map" style="position:relative">
+<div id="map">
   <div class="mobile-status" id="mobileStatus">
-    <div>☘️ Automower Rjukan</div>
-    <div>Sessions: <span id="mSessionCount">—</span> · <span id="mStatusText">Loading…</span></div>
+    <div class="mobile-status-row">
+      <div>☘️ <strong style="color:#7ec87e">Automower Rjukan</strong></div>
+      <div><span id="mMowerActivity">—</span> · 🔋<span id="mMowerBattery">—</span></div>
+    </div>
+    <div class="mobile-status-row">
+      <div>Sessions: <span id="mSessionCount">—</span></div>
+      <div><span id="mStatusText">Loading…</span></div>
+    </div>
   </div>
   <button class="fab" id="fabBtn" onclick="toggleMenu()">☰</button>
   <div class="overlay" id="overlay" onclick="closeMenu()"></div>
@@ -149,7 +168,7 @@
     <div class="menu-section">
       <div class="menu-label">Actions</div>
       <div class="menu-row">
-        <button class="menu-btn" onclick="refreshData();closeMenu()">↻ Refresh</button>
+        <button class="menu-btn" onclick="refreshData();refreshMowerStatus();closeMenu()">↻ Refresh</button>
         <button class="menu-btn export-btn" onclick="exportTracksSVG();closeMenu()">↓ Tracks SVG</button>
         <button class="menu-btn export-btn" onclick="exportHeatmapSVG();closeMenu()">↓ Heatmap SVG</button>
       </div>
@@ -159,6 +178,7 @@
 
 <script>
 const DATA_URL = "https://raw.githubusercontent.com/jcdrjukan/automower-data/main/mower_positions.json";
+const STATUS_URL = "https://raw.githubusercontent.com/jcdrjukan/automower-data/main/mower_status.json";
 const GARDEN_LAT = 59.8792;
 const GARDEN_LON = 8.5793;
 const TRACK_COLORS = ["#5cdb5c","#4ab84a","#3a963a","#2a742a","#1a521a"];
@@ -167,17 +187,23 @@ let map, allData = [], currentMode = "all";
 let layers = [];
 let osmLayer, satLayer;
 
+const ACTIVITY_LABELS = {
+  "MOWING": "🟢 Mowing",
+  "GOING_HOME": "🔄 Going home",
+  "CHARGING": "⚡ Charging",
+  "LEAVING": "🟢 Leaving",
+  "PARKED_IN_CS": "⏸ Parked",
+  "STOPPED_IN_GARDEN": "⛔ Stopped"
+};
+
 function initMap() {
   map = L.map("map", { center: [GARDEN_LAT, GARDEN_LON], zoom: 19, maxZoom: 22, zoomControl: true });
-
   osmLayer = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     attribution: "© OpenStreetMap", maxZoom: 22, maxNativeZoom: 19, crossOrigin: true
   });
-
   satLayer = L.tileLayer("https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}", {
     attribution: "© Google", maxZoom: 22, maxNativeZoom: 21, crossOrigin: true
   });
-
   osmLayer.addTo(map);
 }
 
@@ -187,47 +213,44 @@ function clearLayers() {
 }
 
 function showTrack() {
-  clearLayers();
-  currentMode = "track";
-  setActiveBtn("btnTrack", "mBtnTrack");
+  clearLayers(); currentMode = "track";
+  setActiveBtn("btnTrack","mBtnTrack");
   if (allData.length === 0) return;
-  const latest = allData[allData.length - 1];
+  const latest = allData[allData.length-1];
   const coords = latest.positions.map(p => [p.latitude, p.longitude]);
-  const line = L.polyline(coords, { color: "#5cdb5c", weight: 2.5, opacity: 0.9 }).addTo(map);
+  const line = L.polyline(coords, { color:"#5cdb5c", weight:2.5, opacity:0.9 }).addTo(map);
   layers.push(line);
   if (coords.length > 0) {
-    layers.push(L.circleMarker(coords[0], { radius: 5, color: "#7ec87e", fillColor: "#7ec87e", fillOpacity: 1 }).bindTooltip("Start").addTo(map));
-    layers.push(L.circleMarker(coords[coords.length-1], { radius: 5, color: "#ff9944", fillColor: "#ff9944", fillOpacity: 1 }).bindTooltip("Latest").addTo(map));
-    map.fitBounds(line.getBounds(), { padding: [40,40] });
+    layers.push(L.circleMarker(coords[0], { radius:5, color:"#7ec87e", fillColor:"#7ec87e", fillOpacity:1 }).bindTooltip("Start").addTo(map));
+    layers.push(L.circleMarker(coords[coords.length-1], { radius:5, color:"#ff9944", fillColor:"#ff9944", fillOpacity:1 }).bindTooltip("Latest").addTo(map));
+    map.fitBounds(line.getBounds(), { padding:[40,40] });
   }
 }
 
 function showHeatmap() {
-  clearLayers();
-  currentMode = "heat";
-  setActiveBtn("btnHeat", "mBtnHeat");
+  clearLayers(); currentMode = "heat";
+  setActiveBtn("btnHeat","mBtnHeat");
   if (allData.length === 0) return;
   const points = allData.flatMap(s => s.positions.map(p => [p.latitude, p.longitude, 1]));
-  const heat = L.heatLayer(points, { 
-    radius: 15, blur: 10, maxZoom: 22, max: 10.0,
+  const heat = L.heatLayer(points, {
+    radius: 15, blur: 20, maxZoom: 22, max: 5.0,
     gradient: { 0.0:"#0000ff", 0.3:"#00ffff", 0.5:"#00ff00", 0.7:"#ffff00", 1.0:"#ff0000" }
   }).addTo(map);
   layers.push(heat);
 }
 
 function showAll() {
-  clearLayers();
-  currentMode = "all";
-  setActiveBtn("btnAll", "mBtnAll");
+  clearLayers(); currentMode = "all";
+  setActiveBtn("btnAll","mBtnAll");
   if (allData.length === 0) return;
   const bounds = [];
   allData.forEach((session, i) => {
     const coords = session.positions.map(p => [p.latitude, p.longitude]);
-    const line = L.polyline(coords, { color: TRACK_COLORS[i % TRACK_COLORS.length], weight: 1.5, opacity: 0.7 }).addTo(map);
+    const line = L.polyline(coords, { color:TRACK_COLORS[i%TRACK_COLORS.length], weight:1.5, opacity:0.7 }).addTo(map);
     layers.push(line);
     bounds.push(...coords);
   });
-  if (bounds.length > 0) map.fitBounds(L.latLngBounds(bounds), { padding: [40,40] });
+  if (bounds.length > 0) map.fitBounds(L.latLngBounds(bounds), { padding:[40,40] });
 }
 
 function setMapType(type) {
@@ -256,84 +279,93 @@ function closeMenu() {
   document.getElementById("overlay").classList.remove("show");
 }
 
-// SVG Export
 function getBounds() {
   const pts = allData.flatMap(s => s.positions);
   if (!pts.length) return null;
-  return { minLat: Math.min(...pts.map(p=>p.latitude)), maxLat: Math.max(...pts.map(p=>p.latitude)),
-           minLon: Math.min(...pts.map(p=>p.longitude)), maxLon: Math.max(...pts.map(p=>p.longitude)) };
+  return { minLat:Math.min(...pts.map(p=>p.latitude)), maxLat:Math.max(...pts.map(p=>p.latitude)),
+           minLon:Math.min(...pts.map(p=>p.longitude)), maxLon:Math.max(...pts.map(p=>p.longitude)) };
 }
 function toXY(lat, lon, b, W, H, pad) {
-  return { x: (pad + (lon-b.minLon)/(b.maxLon-b.minLon)*W).toFixed(2),
-           y: (pad + (1-(lat-b.minLat)/(b.maxLat-b.minLat))*H).toFixed(2) };
+  return { x:(pad+(lon-b.minLon)/(b.maxLon-b.minLon)*W).toFixed(2),
+           y:(pad+(1-(lat-b.minLat)/(b.maxLat-b.minLat))*H).toFixed(2) };
 }
 function exportTracksSVG() {
-  const b = getBounds(); if (!b) { alert("No data yet!"); return; }
-  const PAD=40, W=800, H=800;
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W+PAD*2} ${H+PAD*2}">\n<rect width="100%" height="100%" fill="none"/>\n`;
-  allData.forEach((s,i) => {
-    const pts = s.positions.map(p => { const c=toXY(p.latitude,p.longitude,b,W,H,PAD); return `${c.x},${c.y}`; }).join(" ");
-    svg += `<polyline points="${pts}" fill="none" stroke="${TRACK_COLORS[i%TRACK_COLORS.length]}" stroke-width="1.5" stroke-opacity="0.8" stroke-linecap="round"/>\n`;
+  const b=getBounds(); if(!b){alert("No data yet!");return;}
+  const PAD=40,W=800,H=800;
+  let svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W+PAD*2} ${H+PAD*2}">\n<rect width="100%" height="100%" fill="none"/>\n`;
+  allData.forEach((s,i)=>{
+    const pts=s.positions.map(p=>{const c=toXY(p.latitude,p.longitude,b,W,H,PAD);return`${c.x},${c.y}`;}).join(" ");
+    svg+=`<polyline points="${pts}" fill="none" stroke="${TRACK_COLORS[i%TRACK_COLORS.length]}" stroke-width="1.5" stroke-opacity="0.8" stroke-linecap="round"/>\n`;
   });
-  downloadSVG(svg+"</svg>", "automower_tracks.svg");
+  downloadSVG(svg+"</svg>","automower_tracks.svg");
 }
 function exportHeatmapSVG() {
-  const b = getBounds(); if (!b) { alert("No data yet!"); return; }
-  const PAD=40, W=800, H=800, CELL=8;
-  const grid = {};
-  allData.forEach(s => s.positions.forEach(p => {
+  const b=getBounds(); if(!b){alert("No data yet!");return;}
+  const PAD=40,W=800,H=800,CELL=8;
+  const grid={};
+  allData.forEach(s=>s.positions.forEach(p=>{
     const c=toXY(p.latitude,p.longitude,b,W,H,PAD);
     const key=`${Math.floor(parseFloat(c.x)/CELL)},${Math.floor(parseFloat(c.y)/CELL)}`;
     grid[key]=(grid[key]||0)+1;
   }));
-  const maxV = Math.max(...Object.values(grid));
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W+PAD*2} ${H+PAD*2}">\n<rect width="100%" height="100%" fill="none"/>\n`;
-  Object.entries(grid).forEach(([key,count]) => {
+  const maxV=Math.max(...Object.values(grid));
+  let svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W+PAD*2} ${H+PAD*2}">\n<rect width="100%" height="100%" fill="none"/>\n`;
+  Object.entries(grid).forEach(([key,count])=>{
     const [gx,gy]=key.split(",").map(Number);
     const t=count/maxV;
-    const fill = t<0.33?`rgba(45,107,45,${(t/0.33).toFixed(2)})`:t<0.66?`rgba(74,170,74,${((t-0.33)/0.33).toFixed(2)})`:
-                 `rgba(200,240,200,${((t-0.66)/0.34).toFixed(2)})`;
-    svg += `<circle cx="${gx*CELL+CELL/2}" cy="${gy*CELL+CELL/2}" r="${Math.round(CELL*0.7)}" fill="${fill}"/>\n`;
+    const fill=t<0.33?`rgba(45,107,45,${(t/0.33).toFixed(2)})`:t<0.66?`rgba(74,170,74,${((t-0.33)/0.33).toFixed(2)})`:
+               `rgba(200,240,200,${((t-0.66)/0.34).toFixed(2)})`;
+    svg+=`<circle cx="${gx*CELL+CELL/2}" cy="${gy*CELL+CELL/2}" r="${Math.round(CELL*0.7)}" fill="${fill}"/>\n`;
   });
-  downloadSVG(svg+"</svg>", "automower_heatmap.svg");
+  downloadSVG(svg+"</svg>","automower_heatmap.svg");
 }
-function downloadSVG(content, filename) {
-  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([content],{type:"image/svg+xml"}));
-  a.download=filename; a.click();
+function downloadSVG(content,filename){
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([content],{type:"image/svg+xml"}));
+  a.download=filename;a.click();
 }
 
 function updateStats(data) {
-  const total = data.reduce((s,d)=>s+d.positions.length,0);
-  document.getElementById("sessionCount").textContent = data.length;
-  document.getElementById("pointCount").textContent = total.toLocaleString();
-  document.getElementById("mSessionCount").textContent = data.length;
-  if (data.length > 0) {
-    const last = new Date(data[data.length-1].timestamp);
-    const fmt = last.toLocaleString("no-NO",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
-    document.getElementById("lastUpdate").textContent = fmt;
-    document.getElementById("mStatusText").textContent = "Updated " + last.toLocaleString("no-NO",{hour:"2-digit",minute:"2-digit"});
+  const total=data.reduce((s,d)=>s+d.positions.length,0);
+  document.getElementById("sessionCount").textContent=data.length;
+  document.getElementById("pointCount").textContent=total.toLocaleString();
+  document.getElementById("mSessionCount").textContent=data.length;
+  if (data.length>0) {
+    const last=new Date(data[data.length-1].timestamp);
+    document.getElementById("lastUpdate").textContent=last.toLocaleString("no-NO",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+    document.getElementById("mStatusText").textContent="Updated "+last.toLocaleString("no-NO",{hour:"2-digit",minute:"2-digit"});
     document.getElementById("statusDot").classList.add("active");
-    document.getElementById("statusText").textContent = "Data loaded";
+    document.getElementById("statusText").textContent="Data loaded";
   } else {
-    document.getElementById("statusText").textContent = "No sessions yet";
-    document.getElementById("mStatusText").textContent = "No sessions yet";
+    document.getElementById("statusText").textContent="No sessions yet";
+    document.getElementById("mStatusText").textContent="No sessions yet";
   }
 }
 
-async function refreshData() {
-  document.getElementById("statusText").textContent = "Loading…";
-  document.getElementById("mStatusText").textContent = "Loading…";
+async function refreshMowerStatus() {
   try {
-    const res = await fetch(DATA_URL + "?t=" + Date.now());
+    const res=await fetch(STATUS_URL+"?t="+Date.now());
     if (res.ok) {
-      allData = await res.json();
-    } else {
-      document.getElementById("statusText").textContent = "HTTP " + res.status;
-      document.getElementById("mStatusText").textContent = "HTTP " + res.status;
+      const s=await res.json();
+      const label=ACTIVITY_LABELS[s.activity]||s.activity;
+      document.getElementById("mowerActivity").textContent=label;
+      document.getElementById("mowerBattery").textContent=s.battery+"%";
+      const el=document.getElementById("mMowerActivity"); if(el) el.textContent=label;
+      const el2=document.getElementById("mMowerBattery"); if(el2) el2.textContent=s.battery+"%";
+      const updated=new Date(s.updated);
+      document.getElementById("mowerUpdated").textContent=updated.toLocaleString("no-NO",{hour:"2-digit",minute:"2-digit"});
     }
+  } catch(e) { console.log("Status fetch error:",e); }
+}
+
+async function refreshData() {
+  document.getElementById("statusText").textContent="Loading…";
+  document.getElementById("mStatusText").textContent="Loading…";
+  try {
+    const res=await fetch(DATA_URL+"?t="+Date.now());
+    if (res.ok) { allData=await res.json(); }
+    else { document.getElementById("statusText").textContent="HTTP "+res.status; }
   } catch(e) {
-    document.getElementById("statusText").textContent = "Error: " + e.message;
-    document.getElementById("mStatusText").textContent = "Error: " + e.message;
+    document.getElementById("statusText").textContent="Error: "+e.message;
   }
   updateStats(allData);
   showAll();
@@ -341,6 +373,7 @@ async function refreshData() {
 
 initMap();
 refreshData();
+refreshMowerStatus();
 </script>
 </body>
 </html>
