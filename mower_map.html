@@ -7,6 +7,7 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>☘️</text></svg>">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
+
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     background: #0f1a0f;
@@ -16,6 +17,8 @@
     flex-direction: column;
     overflow: hidden;
   }
+
+  /* ── DESKTOP ── */
   header {
     display: flex;
     align-items: center;
@@ -38,6 +41,7 @@
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
   .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .divider { width: 1px; background: #2a4a2a; height: 20px; display: inline-block; margin: 0 4px; }
+
   button {
     padding: 6px 14px; border-radius: 4px; border: 1px solid #2a4a2a;
     background: #162416; color: #7ec87e; font-size: 12px; cursor: pointer;
@@ -47,7 +51,9 @@
   button.active { background: #1e4a1e; border-color: #7ec87e; color: #b0e8b0; }
   button.export { border-color: #4a6a2a; color: #a0c87e; }
   button.export:hover { background: #1e3a0e; border-color: #7ea84e; }
-  #map { flex: 1; }
+
+  #map { flex: 1; position: relative; }
+
   .info-panel {
     position: absolute; bottom: 30px; right: 20px; z-index: 1000;
     background: rgba(15,26,15,0.92); border: 1px solid #1e3a1e;
@@ -57,15 +63,92 @@
   .info-panel .label { color: #4a7a4a; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 2px; }
   .info-panel .value { color: #a0d0a0; margin-bottom: 10px; font-size: 13px; }
   .info-panel .value:last-child { margin-bottom: 0; }
-  .loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); z-index: 2000; text-align: center; color: #4a7a4a; font-size: 13px; letter-spacing: 0.06em; }
-  .loading-spinner { width: 32px; height: 32px; border: 2px solid #1e3a1e; border-top-color: #7ec87e; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 12px; }
+
+  .loading {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    z-index: 2000; text-align: center; color: #4a7a4a; font-size: 13px; letter-spacing: 0.06em;
+  }
+  .loading-spinner {
+    width: 32px; height: 32px; border: 2px solid #1e3a1e; border-top-color: #7ec87e;
+    border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 12px;
+  }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── MOBILE ── */
+  .mobile-status {
+    display: none;
+    position: absolute; bottom: 0; left: 0; right: 0; z-index: 1000;
+    background: rgba(15,26,15,0.92); border-top: 1px solid #1e3a1e;
+    padding: 8px 16px; font-size: 11px; color: #4a7a4a;
+    display: none; align-items: center; justify-content: space-between;
+  }
+  .mobile-status span { color: #a0d0a0; }
+
+  .fab {
+    display: none;
+    position: absolute; bottom: 48px; right: 16px; z-index: 1001;
+    width: 48px; height: 48px; border-radius: 50%;
+    background: #1e4a1e; border: 1px solid #7ec87e;
+    color: #7ec87e; font-size: 22px; cursor: pointer;
+    align-items: center; justify-content: center;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+    transition: all 0.15s;
+  }
+  .fab:hover { background: #2a6a2a; }
+
+  .slide-menu {
+    display: none;
+    position: absolute; bottom: 0; left: 0; right: 0; z-index: 1002;
+    background: #0f1a0f; border-top: 1px solid #1e3a1e;
+    border-radius: 16px 16px 0 0;
+    padding: 16px;
+    transform: translateY(100%);
+    transition: transform 0.3s ease;
+  }
+  .slide-menu.open { transform: translateY(0); }
+
+  .menu-handle {
+    width: 36px; height: 4px; background: #2a4a2a; border-radius: 2px;
+    margin: 0 auto 16px;
+  }
+
+  .menu-section { margin-bottom: 14px; }
+  .menu-label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: #4a7a4a; margin-bottom: 8px;
+  }
+  .menu-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .menu-btn {
+    flex: 1; padding: 10px 8px; border-radius: 6px; border: 1px solid #2a4a2a;
+    background: #162416; color: #7ec87e; font-size: 13px; cursor: pointer;
+    text-align: center; transition: all 0.15s; min-width: 80px;
+  }
+  .menu-btn.active { background: #1e4a1e; border-color: #7ec87e; color: #b0e8b0; }
+  .menu-btn.export-btn { border-color: #4a6a2a; color: #a0c87e; }
+
+  .overlay {
+    display: none;
+    position: absolute; inset: 0; z-index: 1001;
+    background: rgba(0,0,0,0.4);
+  }
+  .overlay.show { display: block; }
+
+  /* ── RESPONSIVE SWITCH ── */
+  @media (max-width: 768px) {
+    header { display: none; }
+    .info-panel { display: none; }
+    .mobile-status { display: flex; }
+    .fab { display: flex; }
+    .slide-menu { display: block; }
+  }
 </style>
 <!-- REPLACE THE KEY BELOW WITH YOUR GOOGLE MAPS API KEY -->
 <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAFRrHTdjX7Ri9FdjqdZRvIxHHxbA4gggQ&libraries=visualization"></script>
 </head>
 <body>
 
+<!-- DESKTOP HEADER -->
 <header>
   <div class="title-block">
     <h1>Automower Rjukan</h1>
@@ -81,9 +164,9 @@
     <div class="status-item">Last update: <span id="lastUpdate">—</span></div>
   </div>
   <div class="controls">
-    <button id="btnTrack" class="active" onclick="showTrack()">Latest Track</button>
+    <button id="btnTrack" onclick="showTrack()">Latest Track</button>
     <button id="btnHeat" onclick="showHeatmap()">Coverage Map</button>
-    <button id="btnAll" onclick="showAll()">All Tracks</button>
+    <button id="btnAll" class="active" onclick="showAll()">All Tracks</button>
     <button onclick="refreshData()">↻ Refresh</button>
     <div class="divider"></div>
     <button id="btnMap" class="active" onclick="setMapType('roadmap')">Map</button>
@@ -95,27 +178,72 @@
   </div>
 </header>
 
+<!-- MAP -->
 <div id="map">
   <div class="loading" id="loading">
     <div class="loading-spinner"></div>
     Loading position data…
   </div>
-</div>
 
-<div class="info-panel" id="infoPanel" style="display:none">
-  <div class="label">Current View</div>
-  <div class="value" id="viewDescription">Latest track</div>
-  <div class="label">Garden Centre</div>
-  <div class="value">59.8792°N, 8.5793°E</div>
+  <!-- MOBILE STATUS BAR -->
+  <div class="mobile-status" id="mobileStatus">
+    <div>☘️ Automower Rjukan</div>
+    <div>Sessions: <span id="mSessionCount">—</span> · <span id="mStatusText">Loading…</span></div>
+  </div>
+
+  <!-- MOBILE FAB -->
+  <button class="fab" id="fabBtn" onclick="toggleMenu()">☰</button>
+
+  <!-- MOBILE OVERLAY -->
+  <div class="overlay" id="overlay" onclick="closeMenu()"></div>
+
+  <!-- MOBILE SLIDE MENU -->
+  <div class="slide-menu" id="slideMenu">
+    <div class="menu-handle"></div>
+
+    <div class="menu-section">
+      <div class="menu-label">View</div>
+      <div class="menu-row">
+        <button class="menu-btn" id="mBtnTrack" onclick="showTrack();closeMenu()">Latest Track</button>
+        <button class="menu-btn" id="mBtnHeat" onclick="showHeatmap();closeMenu()">Coverage Map</button>
+        <button class="menu-btn active" id="mBtnAll" onclick="showAll();closeMenu()">All Tracks</button>
+      </div>
+    </div>
+
+    <div class="menu-section">
+      <div class="menu-label">Map Style</div>
+      <div class="menu-row">
+        <button class="menu-btn active" id="mBtnMap" onclick="setMapType('roadmap')">Map</button>
+        <button class="menu-btn" id="mBtnSatellite" onclick="setMapType('satellite')">Satellite</button>
+        <button class="menu-btn" id="mBtnHybrid" onclick="setMapType('hybrid')">Hybrid</button>
+      </div>
+    </div>
+
+    <div class="menu-section">
+      <div class="menu-label">Actions</div>
+      <div class="menu-row">
+        <button class="menu-btn" onclick="refreshData();closeMenu()">↻ Refresh</button>
+        <button class="menu-btn export-btn" onclick="exportTracksSVG();closeMenu()">↓ Tracks SVG</button>
+        <button class="menu-btn export-btn" onclick="exportHeatmapSVG();closeMenu()">↓ Heatmap SVG</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- DESKTOP INFO PANEL -->
+  <div class="info-panel" id="infoPanel" style="display:none">
+    <div class="label">Current View</div>
+    <div class="value" id="viewDescription">All tracks</div>
+    <div class="label">Garden Centre</div>
+    <div class="value">59.8792°N, 8.5793°E</div>
+  </div>
 </div>
 
 <script>
 const DATA_URL = "https://raw.githubusercontent.com/jcdrjukan/automower-data/main/mower_positions.json";
 const GARDEN_LAT = 59.8792;
 const GARDEN_LON = 8.5793;
-const SAMPLE_DATA = [];
 
-let map, allData = [], currentMode = "track";
+let map, allData = [], currentMode = "all";
 let overlays = [];
 const TRACK_COLORS = ["#5cdb5c","#4ab84a","#3a963a","#2a742a","#1a521a"];
 
@@ -140,7 +268,7 @@ function clearOverlays() {
 function showTrack() {
   clearOverlays();
   currentMode = "track";
-  setActiveButton("btnTrack");
+  setActiveButton("btnTrack", "mBtnTrack");
   document.getElementById("viewDescription").textContent = "Latest mowing session";
   if (allData.length === 0) return;
   const latest = allData[allData.length - 1];
@@ -168,7 +296,7 @@ function showTrack() {
 function showHeatmap() {
   clearOverlays();
   currentMode = "heat";
-  setActiveButton("btnHeat");
+  setActiveButton("btnHeat", "mBtnHeat");
   document.getElementById("viewDescription").textContent = "Coverage heatmap (all sessions)";
   if (allData.length === 0) return;
   const points = [];
@@ -185,7 +313,7 @@ function showHeatmap() {
 function showAll() {
   clearOverlays();
   currentMode = "all";
-  setActiveButton("btnAll");
+  setActiveButton("btnAll", "mBtnAll");
   document.getElementById("viewDescription").textContent = `All ${allData.length} sessions`;
   if (allData.length === 0) return;
   const bounds = new google.maps.LatLngBounds();
@@ -199,24 +327,47 @@ function showAll() {
     overlays.push(line);
     coords.forEach(c => bounds.extend(c));
   });
-  map.fitBounds(bounds, 60);
+  if (allData.length > 0) map.fitBounds(bounds, 60);
 }
 
-function setActiveButton(id) {
+function setActiveButton(desktopId, mobileId) {
   ["btnTrack","btnHeat","btnAll"].forEach(b => {
-    document.getElementById(b).classList.toggle("active", b === id);
+    const el = document.getElementById(b);
+    if (el) el.classList.toggle("active", b === desktopId);
+  });
+  ["mBtnTrack","mBtnHeat","mBtnAll"].forEach(b => {
+    const el = document.getElementById(b);
+    if (el) el.classList.toggle("active", b === mobileId);
   });
 }
 
 function setMapType(type) {
   map.setMapTypeId(type);
-  ["btnMap","btnSatellite","btnHybrid"].forEach(b => document.getElementById(b).classList.remove("active"));
-  const btnMap = { roadmap: "btnMap", satellite: "btnSatellite", hybrid: "btnHybrid" };
-  document.getElementById(btnMap[type]).classList.add("active");
+  const mapBtn = { roadmap: ["btnMap","mBtnMap"], satellite: ["btnSatellite","mBtnSatellite"], hybrid: ["btnHybrid","mBtnHybrid"] };
+  ["btnMap","btnSatellite","btnHybrid","mBtnMap","mBtnSatellite","mBtnHybrid"].forEach(b => {
+    const el = document.getElementById(b);
+    if (el) el.classList.remove("active");
+  });
+  mapBtn[type].forEach(b => {
+    const el = document.getElementById(b);
+    if (el) el.classList.add("active");
+  });
 }
 
-// --- SVG Export ---
+// Mobile menu
+function toggleMenu() {
+  const menu = document.getElementById("slideMenu");
+  const overlay = document.getElementById("overlay");
+  menu.classList.toggle("open");
+  overlay.classList.toggle("show");
+}
 
+function closeMenu() {
+  document.getElementById("slideMenu").classList.remove("open");
+  document.getElementById("overlay").classList.remove("show");
+}
+
+// SVG Export
 function getBounds() {
   const allPoints = allData.flatMap(s => s.positions);
   if (allPoints.length === 0) return null;
@@ -237,8 +388,7 @@ function exportTracksSVG() {
   const PAD = 40, W = 800, H = 800;
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W+PAD*2} ${H+PAD*2}" width="${W+PAD*2}" height="${H+PAD*2}">\n`;
   svg += `  <rect width="100%" height="100%" fill="none"/>\n`;
-  svg += `  <!-- Automower Rjukan — All Tracks -->\n`;
-  svg += `  <!-- Bounds: ${bounds.minLat.toFixed(6)},${bounds.minLon.toFixed(6)} to ${bounds.maxLat.toFixed(6)},${bounds.maxLon.toFixed(6)} -->\n`;
+  svg += `  <!-- Automower Rjukan — All Tracks | Bounds: ${bounds.minLat.toFixed(6)},${bounds.minLon.toFixed(6)} to ${bounds.maxLat.toFixed(6)},${bounds.maxLon.toFixed(6)} -->\n`;
   allData.forEach((session, i) => {
     const color = TRACK_COLORS[i % TRACK_COLORS.length];
     const pts = session.positions.map(p => {
@@ -294,45 +444,48 @@ function downloadSVG(svgContent, filename) {
   URL.revokeObjectURL(url);
 }
 
-// --- Stats & Data ---
-
 function updateStats(data) {
   const totalPoints = data.reduce((sum, s) => sum + s.positions.length, 0);
   document.getElementById("sessionCount").textContent = data.length;
   document.getElementById("pointCount").textContent = totalPoints.toLocaleString();
+  document.getElementById("mSessionCount").textContent = data.length;
   if (data.length > 0) {
     const last = new Date(data[data.length - 1].timestamp);
     document.getElementById("lastUpdate").textContent = last.toLocaleString("no-NO", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
     document.getElementById("statusDot").classList.add("active");
     document.getElementById("statusText").textContent = "Data loaded";
+    document.getElementById("mStatusText").textContent = "Updated " + last.toLocaleString("no-NO", { hour: "2-digit", minute: "2-digit" });
   } else {
-    document.getElementById("statusText").textContent = "No mowing sessions yet";
+    document.getElementById("statusText").textContent = "No sessions yet";
+    document.getElementById("mStatusText").textContent = "No sessions yet";
   }
 }
 
 async function refreshData() {
   document.getElementById("statusText").textContent = "Refreshing…";
+  document.getElementById("mStatusText").textContent = "Refreshing…";
   document.getElementById("statusDot").classList.remove("active");
   try {
     const res = await fetch(DATA_URL + "?t=" + Date.now());
     if (res.ok) {
       const data = await res.json();
-      allData = data.length > 0 ? data : SAMPLE_DATA;
-      if (data.length === 0) document.getElementById("statusText").textContent = "No sessions yet";
+      allData = data;
+      if (data.length === 0) {
+        document.getElementById("statusText").textContent = "No sessions yet";
+        document.getElementById("mStatusText").textContent = "No sessions yet";
+      }
     } else {
-      allData = SAMPLE_DATA;
       document.getElementById("statusText").textContent = "Could not load data";
+      document.getElementById("mStatusText").textContent = "Could not load data";
     }
   } catch(e) {
-    allData = SAMPLE_DATA;
     document.getElementById("statusText").textContent = "Could not load data";
+    document.getElementById("mStatusText").textContent = "Could not load data";
   }
   updateStats(allData);
   document.getElementById("loading").style.display = "none";
   document.getElementById("infoPanel").style.display = "block";
-  if (currentMode === "track") showTrack();
-  else if (currentMode === "heat") showHeatmap();
-  else showAll();
+  showAll();
 }
 
 window.addEventListener("load", () => {
