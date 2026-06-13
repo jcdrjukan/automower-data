@@ -233,7 +233,7 @@ function showHeatmap() {
   if (allData.length === 0) return;
   const points = allData.flatMap(s => s.positions.map(p => [p.latitude, p.longitude, 1]));
   const heat = L.heatLayer(points, {
-    radius: 15, blur: 20, maxZoom: 22, max: 5.0,
+    radius: 15, blur: 10, maxZoom: 22, max: 5.0,
     gradient: { 0.0:"#0000ff", 0.3:"#00ffff", 0.5:"#00ff00", 0.7:"#ffff00", 1.0:"#ff0000" }
   }).addTo(map);
   layers.push(heat);
