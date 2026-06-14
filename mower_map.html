@@ -58,7 +58,7 @@
   .mobile-status-row { display: flex; justify-content: space-between; align-items: center; }
   .mobile-status span { color: #a0d0a0; }
   .fab {
-    display: none; position: absolute; bottom: 72px; right: 16px; z-index: 1001;
+    display: none; position: absolute; top: 16px; right: 16px; z-index: 1001;
     width: 48px; height: 48px; border-radius: 50%;
     background: #1e4a1e; border: 1px solid #7ec87e;
     color: #7ec87e; font-size: 22px; cursor: pointer;
@@ -123,7 +123,7 @@
   </div>
   <div class="controls">
     <button id="btnTrack" onclick="showTrack()">Latest Track</button>
-    <button id="btnHeat" onclick="showHeatmap()">Coverage Map</button>
+    <button id="btnHeat" onclick="showHeatmap()">Heatmap</button>
     <button id="btnAll" class="active" onclick="showAll()">All Tracks</button>
     <button onclick="refreshData();refreshMowerStatus()">↻ Refresh</button>
     <div class="divider"></div>
@@ -151,10 +151,35 @@
   <div class="slide-menu" id="slideMenu">
     <div class="menu-handle"></div>
     <div class="menu-section">
+      <div class="menu-label">Status</div>
+      <div style="background:#162416;border:1px solid #2a4a2a;border-radius:6px;padding:10px 12px;font-size:12px;display:flex;flex-direction:column;gap:6px;">
+        <div style="display:flex;justify-content:space-between;">
+          <span style="color:#4a7a4a">Mower</span>
+          <span style="color:#a0d0a0" id="mMenuActivity">—</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;">
+          <span style="color:#4a7a4a">Battery</span>
+          <span style="color:#a0d0a0">🔋 <span id="mMenuBattery">—</span></span>
+        </div>
+        <div style="display:flex;justify-content:space-between;">
+          <span style="color:#4a7a4a">Sessions</span>
+          <span style="color:#a0d0a0" id="mMenuSessions">—</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;">
+          <span style="color:#4a7a4a">Total points</span>
+          <span style="color:#a0d0a0" id="mMenuPoints">—</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;">
+          <span style="color:#4a7a4a">Last updated</span>
+          <span style="color:#a0d0a0" id="mMenuUpdated">—</span>
+        </div>
+      </div>
+    </div>
+    <div class="menu-section">
       <div class="menu-label">View</div>
       <div class="menu-row">
         <button class="menu-btn" id="mBtnTrack" onclick="showTrack();closeMenu()">Latest Track</button>
-        <button class="menu-btn" id="mBtnHeat" onclick="showHeatmap();closeMenu()">Coverage Map</button>
+        <button class="menu-btn" id="mBtnHeat" onclick="showHeatmap();closeMenu()">Heatmap</button>
         <button class="menu-btn active" id="mBtnAll" onclick="showAll();closeMenu()">All Tracks</button>
       </div>
     </div>
@@ -329,10 +354,14 @@ function updateStats(data) {
   document.getElementById("sessionCount").textContent=data.length;
   document.getElementById("pointCount").textContent=total.toLocaleString();
   document.getElementById("mSessionCount").textContent=data.length;
+  const el1=document.getElementById("mMenuSessions"); if(el1) el1.textContent=data.length;
+  const el2=document.getElementById("mMenuPoints"); if(el2) el2.textContent=total.toLocaleString();
   if (data.length>0) {
     const last=new Date(data[data.length-1].timestamp);
-    document.getElementById("lastUpdate").textContent=last.toLocaleString("no-NO",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+    const fmt=last.toLocaleString("no-NO",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+    document.getElementById("lastUpdate").textContent=fmt;
     document.getElementById("mStatusText").textContent="Updated "+last.toLocaleString("no-NO",{hour:"2-digit",minute:"2-digit"});
+    const el3=document.getElementById("mMenuUpdated"); if(el3) el3.textContent=fmt;
     document.getElementById("statusDot").classList.add("active");
     document.getElementById("statusText").textContent="Data loaded";
   } else {
@@ -351,6 +380,8 @@ async function refreshMowerStatus() {
       document.getElementById("mowerBattery").textContent=s.battery+"%";
       const el=document.getElementById("mMowerActivity"); if(el) el.textContent=label;
       const el2=document.getElementById("mMowerBattery"); if(el2) el2.textContent=s.battery+"%";
+      const el3=document.getElementById("mMenuActivity"); if(el3) el3.textContent=label;
+      const el4=document.getElementById("mMenuBattery"); if(el4) el4.textContent=s.battery+"%";
       const updated=new Date(s.updated);
       document.getElementById("mowerUpdated").textContent=updated.toLocaleString("no-NO",{hour:"2-digit",minute:"2-digit"});
     }
