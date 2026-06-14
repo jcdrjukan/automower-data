@@ -93,7 +93,27 @@
     .slide-menu { display: block !important; }
   }
 
-  .leaflet-control-attribution { background: rgba(15,26,15,0.8) !important; color: #3a5a3a !important; font-size: 10px !important; }
+  .heatmap-controls {
+    display: none;
+    position: absolute; bottom: 20px; left: 20px; z-index: 1000;
+    background: rgba(15,26,15,0.95); border: 1px solid #1e3a1e;
+    border-radius: 8px; padding: 12px 16px; font-size: 11px;
+    min-width: 200px; backdrop-filter: blur(4px);
+  }
+  .heatmap-controls.visible { display: block; }
+  .hc-title { color: #7ec87e; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; }
+  .hc-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; gap: 8px; }
+  .hc-row:last-child { margin-bottom: 0; }
+  .hc-label { color: #4a7a4a; min-width: 60px; }
+  .hc-value { color: #a0d0a0; min-width: 24px; text-align: right; }
+  input[type=range] {
+    flex: 1; accent-color: #5cdb5c; height: 3px;
+    background: #2a4a2a; border-radius: 2px; cursor: pointer;
+  }
+
+  @media (max-width: 768px) {
+    .heatmap-controls { display: none !important; }
+  }
   .leaflet-control-attribution a { color: #4a7a4a !important; }
   .leaflet-control-zoom a { background: #162416 !important; color: #7ec87e !important; border-color: #2a4a2a !important; }
 </style>
@@ -146,7 +166,25 @@
       <div><span id="mStatusText">Loading…</span></div>
     </div>
   </div>
-  <button class="fab" id="fabBtn" onclick="toggleMenu()">☰</button>
+  <!-- Heatmap controls panel (desktop) -->
+  <div class="heatmap-controls" id="heatmapControls">
+    <div class="hc-title">Heatmap Settings</div>
+    <div class="hc-row">
+      <span class="hc-label">Radius</span>
+      <input type="range" id="hcRadius" min="1" max="20" value="5" oninput="updateHeatmap()">
+      <span class="hc-value" id="hcRadiusVal">5</span>
+    </div>
+    <div class="hc-row">
+      <span class="hc-label">Blur</span>
+      <input type="range" id="hcBlur" min="1" max="30" value="5" oninput="updateHeatmap()">
+      <span class="hc-value" id="hcBlurVal">5</span>
+    </div>
+    <div class="hc-row">
+      <span class="hc-label">Max</span>
+      <input type="range" id="hcMax" min="1" max="20" value="10" oninput="updateHeatmap()">
+      <span class="hc-value" id="hcMaxVal">10</span>
+    </div>
+  </div>
   <div class="overlay" id="overlay" onclick="closeMenu()"></div>
   <div class="slide-menu" id="slideMenu">
     <div class="menu-handle"></div>
@@ -190,8 +228,32 @@
         <button class="menu-btn" id="mBtnSat" onclick="setMapType('satellite')">Satellite</button>
       </div>
     </div>
-    <div class="menu-section">
-      <div class="menu-label">Actions</div>
+    <div class="menu-section" id="mHeatmapSection" style="display:none">
+      <div class="menu-label">Heatmap Settings</div>
+      <div style="background:#162416;border:1px solid #2a4a2a;border-radius:6px;padding:10px 12px;font-size:12px;display:flex;flex-direction:column;gap:10px;">
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+            <span style="color:#4a7a4a">Radius</span>
+            <span style="color:#a0d0a0" id="mHcRadiusVal">5</span>
+          </div>
+          <input type="range" id="mHcRadius" min="1" max="20" value="5" style="width:100%;accent-color:#5cdb5c" oninput="syncSlider('Radius',this.value);updateHeatmap()">
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+            <span style="color:#4a7a4a">Blur</span>
+            <span style="color:#a0d0a0" id="mHcBlurVal">5</span>
+          </div>
+          <input type="range" id="mHcBlur" min="1" max="30" value="5" style="width:100%;accent-color:#5cdb5c" oninput="syncSlider('Blur',this.value);updateHeatmap()">
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+            <span style="color:#4a7a4a">Max Intensity</span>
+            <span style="color:#a0d0a0" id="mHcMaxVal">10</span>
+          </div>
+          <input type="range" id="mHcMax" min="1" max="20" value="10" style="width:100%;accent-color:#5cdb5c" oninput="syncSlider('Max',this.value);updateHeatmap()">
+        </div>
+      </div>
+    </div>
       <div class="menu-row">
         <button class="menu-btn" onclick="refreshData();refreshMowerStatus();closeMenu()">↻ Refresh</button>
         <button class="menu-btn export-btn" onclick="exportTracksSVG();closeMenu()">↓ Tracks SVG</button>
@@ -237,9 +299,13 @@ function clearLayers() {
   layers = [];
 }
 
+let heatLayer = null;
+
 function showTrack() {
   clearLayers(); currentMode = "track";
   setActiveBtn("btnTrack","mBtnTrack");
+  document.getElementById("heatmapControls").classList.remove("visible");
+  document.getElementById("mHeatmapSection").style.display = "none";
   if (allData.length === 0) return;
   const latest = allData[allData.length-1];
   const coords = latest.positions.map(p => [p.latitude, p.longitude]);
@@ -255,18 +321,49 @@ function showTrack() {
 function showHeatmap() {
   clearLayers(); currentMode = "heat";
   setActiveBtn("btnHeat","mBtnHeat");
+  document.getElementById("heatmapControls").classList.add("visible");
+  document.getElementById("mHeatmapSection").style.display = "block";
   if (allData.length === 0) return;
+  buildHeatmap();
+}
+
+function buildHeatmap() {
+  if (heatLayer) { map.removeLayer(heatLayer); heatLayer = null; }
+  const radius = parseInt(document.getElementById("hcRadius").value);
+  const blur = parseInt(document.getElementById("hcBlur").value);
+  const max = parseFloat(document.getElementById("hcMax").value);
   const points = allData.flatMap(s => s.positions.map(p => [p.latitude, p.longitude, 1]));
-  const heat = L.heatLayer(points, {
-    radius: 5, blur: 5, maxZoom: 22, max: 10.0,
+  heatLayer = L.heatLayer(points, {
+    radius: radius, blur: blur, maxZoom: 22, max: max,
     gradient: { 0.0:"#0000ff", 0.3:"#00ffff", 0.5:"#00ff00", 0.7:"#ffff00", 1.0:"#ff0000" }
   }).addTo(map);
-  layers.push(heat);
+}
+
+function updateHeatmap() {
+  // Update value labels
+  const r = document.getElementById("hcRadius").value;
+  const b = document.getElementById("hcBlur").value;
+  const m = document.getElementById("hcMax").value;
+  document.getElementById("hcRadiusVal").textContent = r;
+  document.getElementById("hcBlurVal").textContent = b;
+  document.getElementById("hcMaxVal").textContent = m;
+  document.getElementById("mHcRadiusVal").textContent = r;
+  document.getElementById("mHcBlurVal").textContent = b;
+  document.getElementById("mHcMaxVal").textContent = m;
+  if (currentMode === "heat") buildHeatmap();
+}
+
+function syncSlider(name, value) {
+  // Sync mobile sliders to desktop and vice versa
+  const map = { Radius: ["hcRadius","mHcRadius"], Blur: ["hcBlur","mHcBlur"], Max: ["hcMax","mHcMax"] };
+  map[name].forEach(id => { const el=document.getElementById(id); if(el) el.value=value; });
 }
 
 function showAll() {
   clearLayers(); currentMode = "all";
   setActiveBtn("btnAll","mBtnAll");
+  document.getElementById("heatmapControls").classList.remove("visible");
+  document.getElementById("mHeatmapSection").style.display = "none";
   if (allData.length === 0) return;
   const bounds = [];
   allData.forEach((session, i) => {
