@@ -350,24 +350,37 @@ function filterByConfidence(positions, grid, minCount) {
   });
 }
 
-// Convex hull (Graham scan)
-function convexHull(points) {
-  if (points.length < 3) return points;
-  const pts = [...points].sort((a,b) => a[1]-b[1] || a[0]-b[0]);
-  const cross = (O,A,B) => (A[0]-O[0])*(B[1]-O[1]) - (A[1]-O[1])*(B[0]-O[0]);
-  const lower = [];
-  for (const p of pts) {
-    while (lower.length >= 2 && cross(lower[lower.length-2], lower[lower.length-1], p) <= 0) lower.pop();
-    lower.push(p);
+function getGridBounds(grid) {
+  const keys = Object.keys(grid);
+  const gxs = keys.map(k => parseInt(k.split(',')[0]));
+  const gys = keys.map(k => parseInt(k.split(',')[1]));
+  return {
+    minX: Math.min(...gxs)-1, maxX: Math.max(...gxs)+1,
+    minY: Math.min(...gys)-1, maxY: Math.max(...gys)+1
+  };
+}
+
+function traceBoundaryEdges(grid, minCount) {
+  const bounds = getGridBounds(grid);
+  const isMowed = (gx, gy) => (grid[`${gx},${gy}`] || 0) >= minCount;
+  const edges = [];
+  for (let gx = bounds.minX; gx <= bounds.maxX; gx++) {
+    for (let gy = bounds.minY; gy <= bounds.maxY; gy++) {
+      if (!isMowed(gx, gy)) continue;
+      const cx = gx * CELL_SIZE;
+      const cy = gy * CELL_SIZE;
+      const h = CELL_SIZE / 2;
+      // Top edge
+      if (!isMowed(gx, gy+1)) edges.push([[cy+h, cx-h],[cy+h, cx+h]]);
+      // Bottom edge
+      if (!isMowed(gx, gy-1)) edges.push([[cy-h, cx-h],[cy-h, cx+h]]);
+      // Right edge
+      if (!isMowed(gx+1, gy)) edges.push([[cy-h, cx+h],[cy+h, cx+h]]);
+      // Left edge
+      if (!isMowed(gx-1, gy)) edges.push([[cy-h, cx-h],[cy+h, cx-h]]);
+    }
   }
-  const upper = [];
-  for (let i = pts.length-1; i >= 0; i--) {
-    const p = pts[i];
-    while (upper.length >= 2 && cross(upper[upper.length-2], upper[upper.length-1], p) <= 0) upper.pop();
-    upper.push(p);
-  }
-  upper.pop(); lower.pop();
-  return lower.concat(upper);
+  return edges;
 }
 
 let boundaryLayer = null;
@@ -433,16 +446,13 @@ function buildHeatmap() {
     gradient: { 0.0:"#0000ff", 0.3:"#00ffff", 0.5:"#00ff00", 0.7:"#ffff00", 1.0:"#ff0000" }
   }).addTo(map);
 
-  // Draw convex hull boundary
+  // Draw grid-based boundary (handles interior exclusion zones correctly)
   if (showBoundary && filtered.length >= 3) {
-    const pts = filtered.map(p => [p.longitude, p.latitude]);
-    const hull = convexHull(pts);
-    const hullLatLng = hull.map(p => [p[1], p[0]]);
-    boundaryLayer = L.polygon(hullLatLng, {
-      color: "#7ec87e", weight: 2, opacity: 0.8,
-      fillColor: "#7ec87e", fillOpacity: 0.05,
-      dashArray: "6,6"
-    }).addTo(map);
+    const edges = traceBoundaryEdges(grid, minCount);
+    const edgeLines = edges.map(e => L.polyline(e, {
+      color: "#7ec87e", weight: 1.5, opacity: 0.8, dashArray: "4,4"
+    }));
+    boundaryLayer = L.layerGroup(edgeLines).addTo(map);
   }
 }
 
