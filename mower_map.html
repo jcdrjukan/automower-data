@@ -8,8 +8,31 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+  #statsPanel {
+    display: none; flex: 1; overflow-y: auto;
+    background: #0a140a; padding: 20px;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  #statsPanel.visible { display: grid; }
+  .chart-card {
+    background: #0f1a0f; border: 1px solid #1e3a1e;
+    border-radius: 8px; padding: 14px;
+  }
+  .chart-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: #4a7a4a; margin-bottom: 10px;
+  }
+  .chart-card canvas { max-height: 200px; }
+  @media (max-width: 900px) {
+    #statsPanel { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 600px) {
+    #statsPanel { grid-template-columns: 1fr; }
+  }
+</style>
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     background: #0f1a0f; color: #d4e8d4;
@@ -146,6 +169,7 @@
     <button id="btnTrack" onclick="showTrack()">Latest Track</button>
     <button id="btnHeat" onclick="showHeatmap()">Heatmap</button>
     <button id="btnAll" class="active" onclick="showAll()">All Tracks</button>
+    <button id="btnStats" onclick="showStats()">📊 Stats</button>
     <button onclick="refreshData();refreshMowerStatus()">↻ Refresh</button>
     <div class="divider"></div>
     <button id="btnOSM" class="active" onclick="setMapType('osm')">Map</button>
@@ -155,6 +179,33 @@
     <button class="export" onclick="exportHeatmapSVG()">↓ Heatmap SVG</button>
   </div>
 </header>
+
+<div id="statsPanel">
+  <div class="chart-card">
+    <div class="chart-title">Points Added Per Day</div>
+    <canvas id="chartPointsPerDay"></canvas>
+  </div>
+  <div class="chart-card">
+    <div class="chart-title">Sessions Per Day</div>
+    <canvas id="chartSessionsPerDay"></canvas>
+  </div>
+  <div class="chart-card">
+    <div class="chart-title">Cumulative Points Over Time</div>
+    <canvas id="chartCumulative"></canvas>
+  </div>
+  <div class="chart-card">
+    <div class="chart-title">Activity Breakdown</div>
+    <canvas id="chartActivity"></canvas>
+  </div>
+  <div class="chart-card">
+    <div class="chart-title">Average Session Length Over Time</div>
+    <canvas id="chartSessionLength"></canvas>
+  </div>
+  <div class="chart-card">
+    <div class="chart-title">Time of Day Distribution</div>
+    <canvas id="chartTimeOfDay"></canvas>
+  </div>
+</div>
 
 <div id="map" style="position:relative;flex:1;background:#0a140a">
   <button class="fab" id="fabBtn" onclick="toggleMenu()">☰</button>
@@ -239,6 +290,7 @@
         <button class="menu-btn" id="mBtnTrack" onclick="showTrack();closeMenu()">Latest Track</button>
         <button class="menu-btn" id="mBtnHeat" onclick="showHeatmap();closeMenu()">Heatmap</button>
         <button class="menu-btn active" id="mBtnAll" onclick="showAll();closeMenu()">All Tracks</button>
+        <button class="menu-btn" id="mBtnStats" onclick="showStats();closeMenu()">📊 Stats</button>
       </div>
     </div>
     <div class="menu-section">
@@ -494,6 +546,7 @@ let heatLayer = null;
 
 function showTrack() {
   clearLayers(); currentMode = "track";
+  hideStats();
   setActiveBtn("btnTrack","mBtnTrack");
   document.getElementById("heatmapControls").classList.remove("visible");
   document.getElementById("mHeatmapSection").style.display = "none";
@@ -511,6 +564,7 @@ function showTrack() {
 
 function showHeatmap() {
   clearLayers(); currentMode = "heat";
+  hideStats();
   setActiveBtn("btnHeat","mBtnHeat");
   document.getElementById("heatmapControls").classList.add("visible");
   document.getElementById("mHeatmapSection").style.display = "block";
@@ -591,8 +645,149 @@ function syncSlider(name, value) {
   sliderMap[name].forEach(id => { const el=document.getElementById(id); if(el) el.value=value; });
 }
 
+function showStats() {
+  clearLayers();
+  currentMode = "stats";
+  setActiveBtn("btnStats", "mBtnStats");
+  document.getElementById("heatmapControls").classList.remove("visible");
+  document.getElementById("mHeatmapSection").style.display = "none";
+  document.getElementById("map").style.display = "none";
+  document.getElementById("statsPanel").classList.add("visible");
+  buildCharts();
+}
+
+function hideStats() {
+  document.getElementById("map").style.display = "block";
+  document.getElementById("statsPanel").classList.remove("visible");
+}
+
+let charts = {};
+
+function destroyCharts() {
+  Object.values(charts).forEach(c => c.destroy());
+  charts = {};
+}
+
+const CHART_DEFAULTS = {
+  responsive: true,
+  maintainAspectRatio: true,
+  plugins: { legend: { labels: { color: "#7ec87e", font: { size: 11 } } } },
+  scales: {
+    x: { ticks: { color: "#4a7a4a", font: { size: 10 } }, grid: { color: "#1e3a1e" } },
+    y: { ticks: { color: "#4a7a4a", font: { size: 10 } }, grid: { color: "#1e3a1e" } }
+  }
+};
+
+function buildCharts() {
+  destroyCharts();
+  if (allData.length === 0) return;
+
+  // Group sessions by date
+  const byDate = {};
+  allData.forEach(s => {
+    const date = s.timestamp.slice(0, 10);
+    if (!byDate[date]) byDate[date] = [];
+    byDate[date].push(s);
+  });
+  const dates = Object.keys(byDate).sort();
+
+  // --- Chart 1: Points per day ---
+  const pointsPerDay = dates.map(d => byDate[d].reduce((sum, s) => sum + s.positions.length, 0));
+  charts.pointsPerDay = new Chart(document.getElementById("chartPointsPerDay"), {
+    type: "bar",
+    data: {
+      labels: dates.map(d => d.slice(5)),
+      datasets: [{ label: "Points", data: pointsPerDay,
+        backgroundColor: "#2d6b2d", borderColor: "#5cdb5c", borderWidth: 1 }]
+    },
+    options: { ...CHART_DEFAULTS, plugins: { legend: { display: false } } }
+  });
+
+  // --- Chart 2: Sessions per day ---
+  const sessionsPerDay = dates.map(d => byDate[d].length);
+  charts.sessionsPerDay = new Chart(document.getElementById("chartSessionsPerDay"), {
+    type: "bar",
+    data: {
+      labels: dates.map(d => d.slice(5)),
+      datasets: [{ label: "Sessions", data: sessionsPerDay,
+        backgroundColor: "#1e4a3a", borderColor: "#4ab8a0", borderWidth: 1 }]
+    },
+    options: { ...CHART_DEFAULTS, plugins: { legend: { display: false } } }
+  });
+
+  // --- Chart 3: Cumulative points ---
+  let cumulative = 0;
+  const cumulativeData = [];
+  const cumulativeDates = [];
+  allData.slice().sort((a,b) => a.timestamp.localeCompare(b.timestamp)).forEach(s => {
+    cumulative += s.positions.length;
+    cumulativeData.push(cumulative);
+    cumulativeDates.push(s.timestamp.slice(5, 10));
+  });
+  charts.cumulative = new Chart(document.getElementById("chartCumulative"), {
+    type: "line",
+    data: {
+      labels: cumulativeDates,
+      datasets: [{ label: "Total Points", data: cumulativeData,
+        borderColor: "#7ec87e", backgroundColor: "rgba(126,200,126,0.1)",
+        borderWidth: 2, pointRadius: 0, fill: true, tension: 0.3 }]
+    },
+    options: { ...CHART_DEFAULTS }
+  });
+
+  // --- Chart 4: Activity breakdown ---
+  const activityCount = {};
+  allData.forEach(s => { activityCount[s.activity] = (activityCount[s.activity] || 0) + 1; });
+  const activityLabels = { MOWING:"Mowing", GOING_HOME:"Going Home", LEAVING:"Leaving",
+                           CHARGING:"Charging", PARKED_IN_CS:"Parked" };
+  const actColors = ["#5cdb5c","#4ab8a0","#a0c87e","#2d6b2d","#1e4a1e"];
+  charts.activity = new Chart(document.getElementById("chartActivity"), {
+    type: "doughnut",
+    data: {
+      labels: Object.keys(activityCount).map(k => activityLabels[k] || k),
+      datasets: [{ data: Object.values(activityCount),
+        backgroundColor: actColors, borderColor: "#0f1a0f", borderWidth: 2 }]
+    },
+    options: { responsive: true, maintainAspectRatio: true,
+      plugins: { legend: { labels: { color: "#7ec87e", font: { size: 10 } }, position: "bottom" } } }
+  });
+
+  // --- Chart 5: Average session length (points) per day ---
+  const avgLength = dates.map(d => {
+    const sessions = byDate[d];
+    return Math.round(sessions.reduce((sum, s) => sum + s.positions.length, 0) / sessions.length);
+  });
+  charts.sessionLength = new Chart(document.getElementById("chartSessionLength"), {
+    type: "line",
+    data: {
+      labels: dates.map(d => d.slice(5)),
+      datasets: [{ label: "Avg Points/Session", data: avgLength,
+        borderColor: "#a0c87e", backgroundColor: "rgba(160,200,126,0.1)",
+        borderWidth: 2, pointRadius: 2, fill: true, tension: 0.3 }]
+    },
+    options: { ...CHART_DEFAULTS }
+  });
+
+  // --- Chart 6: Time of day distribution (hour buckets) ---
+  const hourBuckets = new Array(24).fill(0);
+  allData.forEach(s => {
+    const hour = new Date(s.timestamp).getUTCHours() + 2; // Norway UTC+2
+    hourBuckets[((hour % 24 + 24) % 24)]++;
+  });
+  charts.timeOfDay = new Chart(document.getElementById("chartTimeOfDay"), {
+    type: "bar",
+    data: {
+      labels: hourBuckets.map((_, i) => `${i}:00`),
+      datasets: [{ label: "Sessions", data: hourBuckets,
+        backgroundColor: "#2a5a3a", borderColor: "#4aaa7a", borderWidth: 1 }]
+    },
+    options: { ...CHART_DEFAULTS, plugins: { legend: { display: false } } }
+  });
+}
+
 function showAll() {
   clearLayers(); currentMode = "all";
+  hideStats();
   setActiveBtn("btnAll","mBtnAll");
   document.getElementById("heatmapControls").classList.remove("visible");
   document.getElementById("mHeatmapSection").style.display = "none";
@@ -620,8 +815,8 @@ function setMapType(type) {
 }
 
 function setActiveBtn(deskId, mobId) {
-  ["btnTrack","btnHeat","btnAll"].forEach(b => { const el=document.getElementById(b); if(el) el.classList.toggle("active", b===deskId); });
-  ["mBtnTrack","mBtnHeat","mBtnAll"].forEach(b => { const el=document.getElementById(b); if(el) el.classList.toggle("active", b===mobId); });
+  ["btnTrack","btnHeat","btnAll","btnStats"].forEach(b => { const el=document.getElementById(b); if(el) el.classList.toggle("active", b===deskId); });
+  ["mBtnTrack","mBtnHeat","mBtnAll","mBtnStats"].forEach(b => { const el=document.getElementById(b); if(el) el.classList.toggle("active", b===mobId); });
 }
 
 function toggleMenu() {
