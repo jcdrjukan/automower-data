@@ -171,7 +171,7 @@
     <button id="btnTrack" onclick="showTrack()">Latest Track</button>
     <button id="btnHeat" onclick="showHeatmap()">Heatmap</button>
     <button id="btnAll" class="active" onclick="showAll()">All Tracks</button>
-    <button id="btnStats" onclick="showStats()">📊 Stats</button>
+    <button id="btnStats" onclick="showStats()">Stats</button>
     <button onclick="refreshData();refreshMowerStatus()">↻ Refresh</button>
     <div class="divider"></div>
     <button id="btnOSM" class="active" onclick="setMapType('osm')">Map</button>
@@ -292,7 +292,7 @@
         <button class="menu-btn" id="mBtnTrack" onclick="showTrack();closeMenu()">Latest Track</button>
         <button class="menu-btn" id="mBtnHeat" onclick="showHeatmap();closeMenu()">Heatmap</button>
         <button class="menu-btn active" id="mBtnAll" onclick="showAll();closeMenu()">All Tracks</button>
-        <button class="menu-btn" id="mBtnStats" onclick="showStats();closeMenu()">📊 Stats</button>
+        <button class="menu-btn" id="mBtnStats" onclick="showStats();closeMenu()">Stats</button>
       </div>
     </div>
     <div class="menu-section">
@@ -692,6 +692,7 @@ function buildCharts() {
     if (!byDate[date]) byDate[date] = [];
     byDate[date].push(s);
   });
+  const fmtDate = d => d.slice(8) + "/" + d.slice(5, 7);
   const dates = Object.keys(byDate).sort();
 
   // --- Chart 1: Sessions per day (bar) ---
@@ -699,7 +700,7 @@ function buildCharts() {
   charts.sessionsPerDay = new Chart(document.getElementById("chartPointsPerDay"), {
     type: "bar",
     data: {
-      labels: dates.map(d => d.slice(5)),
+      labels: dates.map(d => fmtDate(d)),
       datasets: [{ label: "Sessions", data: sessionsPerDay,
         backgroundColor: "#2d6b2d", borderColor: "#5cdb5c", borderWidth: 1 }]
     },
@@ -715,7 +716,7 @@ function buildCharts() {
   charts.cumulative = new Chart(document.getElementById("chartSessionsPerDay"), {
     type: "line",
     data: {
-      labels: dates.map(d => d.slice(5)),
+      labels: dates.map(d => fmtDate(d)),
       datasets: [{ label: "Total Points", data: cumulativeData,
         borderColor: "#7ec87e", backgroundColor: "rgba(126,200,126,0.1)",
         borderWidth: 2, pointRadius: 2, fill: true, tension: 0.3 }]
@@ -736,7 +737,7 @@ function buildCharts() {
   charts.newCells = new Chart(document.getElementById("chartCumulative"), {
     type: "bar",
     data: {
-      labels: dates.map(d => d.slice(5)),
+      labels: dates.map(d => fmtDate(d)),
       datasets: [{ label: "Unique Areas", data: uniquePerDay,
         backgroundColor: "#1e4a3a", borderColor: "#4ab8a0", borderWidth: 1 }]
     },
@@ -768,7 +769,7 @@ function buildCharts() {
   charts.sessionLength = new Chart(document.getElementById("chartSessionLength"), {
     type: "line",
     data: {
-      labels: dates.map(d => d.slice(5)),
+      labels: dates.map(d => fmtDate(d)),
       datasets: [{ label: "Avg Points/Session", data: avgLength,
         borderColor: "#a0c87e", backgroundColor: "rgba(160,200,126,0.1)",
         borderWidth: 2, pointRadius: 2, fill: true, tension: 0.3 }]
