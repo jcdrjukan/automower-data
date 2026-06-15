@@ -186,6 +186,19 @@
       <input type="range" id="hcMax" min="1" max="20" value="10" oninput="updateHeatmap()">
       <span class="hc-value" id="hcMaxVal">10</span>
     </div>
+    <div class="hc-row">
+      <span class="hc-label">Confidence</span>
+      <input type="range" id="hcConfidence" min="1" max="20" value="2" oninput="updateHeatmap()">
+      <span class="hc-value" id="hcConfidenceVal">2</span>
+    </div>
+    <div class="hc-row" style="margin-top:4px">
+      <span class="hc-label">Boundary</span>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#a0d0a0">
+        <input type="checkbox" id="hcBoundary" onchange="updateHeatmap()" style="accent-color:#5cdb5c">
+        Show
+      </label>
+    </div>
+    <div style="color:#3a6a3a;font-size:10px;margin-top:6px">Filtered: <span id="hcFilteredCount">—</span> pts from <span id="hcTotalCount">—</span></div>
   </div>
   <div class="overlay" id="overlay" onclick="closeMenu()"></div>
   <div class="slide-menu" id="slideMenu">
@@ -254,6 +267,21 @@
           </div>
           <input type="range" id="mHcMax" min="1" max="20" value="10" style="width:100%;accent-color:#5cdb5c" oninput="syncSlider('Max',this.value);updateHeatmap()">
         </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+            <span style="color:#4a7a4a">Confidence</span>
+            <span style="color:#a0d0a0" id="mHcConfidenceVal">2</span>
+          </div>
+          <input type="range" id="mHcConfidence" min="1" max="20" value="2" style="width:100%;accent-color:#5cdb5c" oninput="syncSlider('Confidence',this.value);updateHeatmap()">
+          <div style="color:#3a6a3a;font-size:10px;margin-top:4px">Filtered: <span id="mHcFilteredCount">—</span> of <span id="mHcTotalCount">—</span> pts</div>
+        </div>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <span style="color:#4a7a4a">Show Boundary</span>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#a0d0a0">
+            <input type="checkbox" id="mHcBoundary" onchange="syncBoundary(this.checked);updateHeatmap()" style="accent-color:#5cdb5c">
+            Show
+          </label>
+        </div>
       </div>
     </div>
       <div class="menu-row">
@@ -299,6 +327,56 @@ function initMap() {
 function clearLayers() {
   layers.forEach(l => map.removeLayer(l));
   layers = [];
+  if (boundaryLayer) { map.removeLayer(boundaryLayer); boundaryLayer = null; }
+  if (heatLayer) { map.removeLayer(heatLayer); heatLayer = null; }
+}
+
+// Cell size in degrees (~2m at this latitude)
+const CELL_SIZE = 0.000018;
+
+function buildDensityGrid(positions) {
+  const grid = {};
+  positions.forEach(p => {
+    const key = `${Math.round(p.longitude/CELL_SIZE)},${Math.round(p.latitude/CELL_SIZE)}`;
+    grid[key] = (grid[key] || 0) + 1;
+  });
+  return grid;
+}
+
+function filterByConfidence(positions, grid, minCount) {
+  return positions.filter(p => {
+    const key = `${Math.round(p.longitude/CELL_SIZE)},${Math.round(p.latitude/CELL_SIZE)}`;
+    return (grid[key] || 0) >= minCount;
+  });
+}
+
+// Convex hull (Graham scan)
+function convexHull(points) {
+  if (points.length < 3) return points;
+  const pts = [...points].sort((a,b) => a[1]-b[1] || a[0]-b[0]);
+  const cross = (O,A,B) => (A[0]-O[0])*(B[1]-O[1]) - (A[1]-O[1])*(B[0]-O[0]);
+  const lower = [];
+  for (const p of pts) {
+    while (lower.length >= 2 && cross(lower[lower.length-2], lower[lower.length-1], p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  const upper = [];
+  for (let i = pts.length-1; i >= 0; i--) {
+    const p = pts[i];
+    while (upper.length >= 2 && cross(upper[upper.length-2], upper[upper.length-1], p) <= 0) upper.pop();
+    upper.push(p);
+  }
+  upper.pop(); lower.pop();
+  return lower.concat(upper);
+}
+
+let boundaryLayer = null;
+
+function syncBoundary(checked) {
+  const desktop = document.getElementById("hcBoundary");
+  const mobile = document.getElementById("mHcBoundary");
+  if (desktop) desktop.checked = checked;
+  if (mobile) mobile.checked = checked;
 }
 
 let heatLayer = null;
@@ -331,34 +409,67 @@ function showHeatmap() {
 
 function buildHeatmap() {
   if (heatLayer) { map.removeLayer(heatLayer); heatLayer = null; }
+  if (boundaryLayer) { map.removeLayer(boundaryLayer); boundaryLayer = null; }
+
   const radius = parseInt(document.getElementById("hcRadius").value);
   const blur = parseInt(document.getElementById("hcBlur").value);
   const max = parseFloat(document.getElementById("hcMax").value);
-  const points = allData.flatMap(s => s.positions.map(p => [p.latitude, p.longitude, 1]));
-  heatLayer = L.heatLayer(points, {
+  const minCount = parseInt(document.getElementById("hcConfidence").value);
+  const showBoundary = document.getElementById("hcBoundary").checked ||
+                       document.getElementById("mHcBoundary").checked;
+
+  const allPositions = allData.flatMap(s => s.positions);
+  const grid = buildDensityGrid(allPositions);
+  const filtered = filterByConfidence(allPositions, grid, minCount);
+
+  // Update filter stats
+  const t = allPositions.length.toLocaleString();
+  const f = filtered.length.toLocaleString();
+  ["hcFilteredCount","mHcFilteredCount"].forEach(id => { const el=document.getElementById(id); if(el) el.textContent=f; });
+  ["hcTotalCount","mHcTotalCount"].forEach(id => { const el=document.getElementById(id); if(el) el.textContent=t; });
+
+  heatLayer = L.heatLayer(filtered.map(p => [p.latitude, p.longitude, 1]), {
     radius: radius, blur: blur, maxZoom: 22, max: max,
     gradient: { 0.0:"#0000ff", 0.3:"#00ffff", 0.5:"#00ff00", 0.7:"#ffff00", 1.0:"#ff0000" }
   }).addTo(map);
+
+  // Draw convex hull boundary
+  if (showBoundary && filtered.length >= 3) {
+    const pts = filtered.map(p => [p.longitude, p.latitude]);
+    const hull = convexHull(pts);
+    const hullLatLng = hull.map(p => [p[1], p[0]]);
+    boundaryLayer = L.polygon(hullLatLng, {
+      color: "#7ec87e", weight: 2, opacity: 0.8,
+      fillColor: "#7ec87e", fillOpacity: 0.05,
+      dashArray: "6,6"
+    }).addTo(map);
+  }
 }
 
 function updateHeatmap() {
-  // Update value labels
   const r = document.getElementById("hcRadius").value;
   const b = document.getElementById("hcBlur").value;
   const m = document.getElementById("hcMax").value;
+  const c = document.getElementById("hcConfidence").value;
   document.getElementById("hcRadiusVal").textContent = r;
   document.getElementById("hcBlurVal").textContent = b;
   document.getElementById("hcMaxVal").textContent = m;
+  document.getElementById("hcConfidenceVal").textContent = c;
   document.getElementById("mHcRadiusVal").textContent = r;
   document.getElementById("mHcBlurVal").textContent = b;
   document.getElementById("mHcMaxVal").textContent = m;
+  document.getElementById("mHcConfidenceVal").textContent = c;
   if (currentMode === "heat") buildHeatmap();
 }
 
 function syncSlider(name, value) {
-  // Sync mobile sliders to desktop and vice versa
-  const map = { Radius: ["hcRadius","mHcRadius"], Blur: ["hcBlur","mHcBlur"], Max: ["hcMax","mHcMax"] };
-  map[name].forEach(id => { const el=document.getElementById(id); if(el) el.value=value; });
+  const sliderMap = {
+    Radius: ["hcRadius","mHcRadius"],
+    Blur: ["hcBlur","mHcBlur"],
+    Max: ["hcMax","mHcMax"],
+    Confidence: ["hcConfidence","mHcConfidence"]
+  };
+  sliderMap[name].forEach(id => { const el=document.getElementById(id); if(el) el.value=value; });
 }
 
 function showAll() {
