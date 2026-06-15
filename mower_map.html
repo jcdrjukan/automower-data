@@ -192,7 +192,7 @@
     <canvas id="chartSessionsPerDay"></canvas>
   </div>
   <div class="chart-card">
-    <div class="chart-title">New Garden Areas Discovered Per Day</div>
+    <div class="chart-title">Unique Areas Visited Per Day</div>
     <canvas id="chartCumulative"></canvas>
   </div>
   <div class="chart-card">
@@ -723,23 +723,21 @@ function buildCharts() {
     options: { ...CHART_DEFAULTS }
   });
 
-  // --- Chart 3: New grid cells discovered per day ---
-  const seenCells = new Set();
-  const newCellsPerDay = dates.map(d => {
-    let newCells = 0;
+  // --- Chart 3: Unique grid cells visited per day ---
+  const uniquePerDay = dates.map(d => {
+    const dayCells = new Set();
     byDate[d].forEach(s => {
       s.positions.forEach(p => {
-        const key = `${Math.round(p.longitude/CELL_SIZE)},${Math.round(p.latitude/CELL_SIZE)}`;
-        if (!seenCells.has(key)) { seenCells.add(key); newCells++; }
+        dayCells.add(`${Math.round(p.longitude/CELL_SIZE)},${Math.round(p.latitude/CELL_SIZE)}`);
       });
     });
-    return newCells;
+    return dayCells.size;
   });
   charts.newCells = new Chart(document.getElementById("chartCumulative"), {
     type: "bar",
     data: {
       labels: dates.map(d => d.slice(5)),
-      datasets: [{ label: "New Areas", data: newCellsPerDay,
+      datasets: [{ label: "Unique Areas", data: uniquePerDay,
         backgroundColor: "#1e4a3a", borderColor: "#4ab8a0", borderWidth: 1 }]
     },
     options: { ...CHART_DEFAULTS, plugins: { legend: { display: false } } }
