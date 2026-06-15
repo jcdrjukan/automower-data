@@ -577,6 +577,7 @@ function updateHeatmap() {
   document.getElementById("mHcConfidenceVal").textContent = c;
   document.getElementById("mHcSmoothingVal").textContent = s;
   if (currentMode === "heat") buildHeatmap();
+  saveHeatmapSettings();
 }
 
 function syncSlider(name, value) {
@@ -730,9 +731,40 @@ async function refreshData() {
   showAll();
 }
 
+function saveHeatmapSettings() {
+  try {
+    const settings = {
+      radius: document.getElementById("hcRadius").value,
+      blur: document.getElementById("hcBlur").value,
+      max: document.getElementById("hcMax").value,
+      confidence: document.getElementById("hcConfidence").value,
+      smoothing: document.getElementById("hcSmoothing").value,
+      boundary: document.getElementById("hcBoundary").checked,
+      mapType: document.getElementById("btnSat").classList.contains("active") ? "satellite" : "osm"
+    };
+    localStorage.setItem("heatmapSettings", JSON.stringify(settings));
+  } catch(e) { console.log("Could not save settings:", e); }
+}
+
+function loadHeatmapSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("heatmapSettings"));
+    if (!saved) return;
+    ["hcRadius","mHcRadius"].forEach(id => { const el=document.getElementById(id); if(el) el.value=saved.radius; });
+    ["hcBlur","mHcBlur"].forEach(id => { const el=document.getElementById(id); if(el) el.value=saved.blur; });
+    ["hcMax","mHcMax"].forEach(id => { const el=document.getElementById(id); if(el) el.value=saved.max; });
+    ["hcConfidence","mHcConfidence"].forEach(id => { const el=document.getElementById(id); if(el) el.value=saved.confidence; });
+    ["hcSmoothing","mHcSmoothing"].forEach(id => { const el=document.getElementById(id); if(el) el.value=saved.smoothing; });
+    ["hcBoundary","mHcBoundary"].forEach(id => { const el=document.getElementById(id); if(el) el.checked=saved.boundary; });
+    if (saved.mapType === "satellite") setMapType("satellite");
+    updateHeatmap();
+  } catch(e) { console.log("Could not load settings:", e); }
+}
+
 initMap();
 refreshData();
 refreshMowerStatus();
+loadHeatmapSettings();
 </script>
 </body>
 </html>
