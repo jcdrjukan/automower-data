@@ -184,15 +184,15 @@
 
 <div id="statsPanel">
   <div class="chart-card">
-    <div class="chart-title">Points Added Per Day</div>
+    <div class="chart-title">Sessions Per Day</div>
     <canvas id="chartPointsPerDay"></canvas>
   </div>
   <div class="chart-card">
-    <div class="chart-title">Sessions Per Day</div>
+    <div class="chart-title">Cumulative Points Over Time</div>
     <canvas id="chartSessionsPerDay"></canvas>
   </div>
   <div class="chart-card">
-    <div class="chart-title">Cumulative Points Over Time</div>
+    <div class="chart-title">New Garden Areas Discovered Per Day</div>
     <canvas id="chartCumulative"></canvas>
   </div>
   <div class="chart-card">
@@ -694,48 +694,55 @@ function buildCharts() {
   });
   const dates = Object.keys(byDate).sort();
 
-  // --- Chart 1: Points per day ---
-  const pointsPerDay = dates.map(d => byDate[d].reduce((sum, s) => sum + s.positions.length, 0));
-  charts.pointsPerDay = new Chart(document.getElementById("chartPointsPerDay"), {
+  // --- Chart 1: Sessions per day (bar) ---
+  const sessionsPerDay = dates.map(d => byDate[d].length);
+  charts.sessionsPerDay = new Chart(document.getElementById("chartPointsPerDay"), {
     type: "bar",
     data: {
       labels: dates.map(d => d.slice(5)),
-      datasets: [{ label: "Points", data: pointsPerDay,
+      datasets: [{ label: "Sessions", data: sessionsPerDay,
         backgroundColor: "#2d6b2d", borderColor: "#5cdb5c", borderWidth: 1 }]
     },
     options: { ...CHART_DEFAULTS, plugins: { legend: { display: false } } }
   });
 
-  // --- Chart 2: Sessions per day ---
-  const sessionsPerDay = dates.map(d => byDate[d].length);
-  charts.sessionsPerDay = new Chart(document.getElementById("chartSessionsPerDay"), {
+  // --- Chart 2: Cumulative points per day (one point per day) ---
+  let cumulative = 0;
+  const cumulativeData = dates.map(d => {
+    byDate[d].forEach(s => { cumulative += s.positions.length; });
+    return cumulative;
+  });
+  charts.cumulative = new Chart(document.getElementById("chartSessionsPerDay"), {
+    type: "line",
+    data: {
+      labels: dates.map(d => d.slice(5)),
+      datasets: [{ label: "Total Points", data: cumulativeData,
+        borderColor: "#7ec87e", backgroundColor: "rgba(126,200,126,0.1)",
+        borderWidth: 2, pointRadius: 2, fill: true, tension: 0.3 }]
+    },
+    options: { ...CHART_DEFAULTS }
+  });
+
+  // --- Chart 3: New grid cells discovered per day ---
+  const seenCells = new Set();
+  const newCellsPerDay = dates.map(d => {
+    let newCells = 0;
+    byDate[d].forEach(s => {
+      s.positions.forEach(p => {
+        const key = `${Math.round(p.longitude/CELL_SIZE)},${Math.round(p.latitude/CELL_SIZE)}`;
+        if (!seenCells.has(key)) { seenCells.add(key); newCells++; }
+      });
+    });
+    return newCells;
+  });
+  charts.newCells = new Chart(document.getElementById("chartCumulative"), {
     type: "bar",
     data: {
       labels: dates.map(d => d.slice(5)),
-      datasets: [{ label: "Sessions", data: sessionsPerDay,
+      datasets: [{ label: "New Areas", data: newCellsPerDay,
         backgroundColor: "#1e4a3a", borderColor: "#4ab8a0", borderWidth: 1 }]
     },
     options: { ...CHART_DEFAULTS, plugins: { legend: { display: false } } }
-  });
-
-  // --- Chart 3: Cumulative points ---
-  let cumulative = 0;
-  const cumulativeData = [];
-  const cumulativeDates = [];
-  allData.slice().sort((a,b) => a.timestamp.localeCompare(b.timestamp)).forEach(s => {
-    cumulative += s.positions.length;
-    cumulativeData.push(cumulative);
-    cumulativeDates.push(s.timestamp.slice(5, 10));
-  });
-  charts.cumulative = new Chart(document.getElementById("chartCumulative"), {
-    type: "line",
-    data: {
-      labels: cumulativeDates,
-      datasets: [{ label: "Total Points", data: cumulativeData,
-        borderColor: "#7ec87e", backgroundColor: "rgba(126,200,126,0.1)",
-        borderWidth: 2, pointRadius: 0, fill: true, tension: 0.3 }]
-    },
-    options: { ...CHART_DEFAULTS }
   });
 
   // --- Chart 4: Activity breakdown ---
@@ -771,11 +778,11 @@ function buildCharts() {
     options: { ...CHART_DEFAULTS }
   });
 
-  // --- Chart 6: Time of day distribution (hour buckets) ---
+  // --- Chart 6: Time of day distribution ---
   const hourBuckets = new Array(24).fill(0);
   allData.forEach(s => {
-    const hour = new Date(s.timestamp).getUTCHours() + 2; // Norway UTC+2
-    hourBuckets[((hour % 24 + 24) % 24)]++;
+    const hour = (new Date(s.timestamp).getUTCHours() + 2 + 24) % 24;
+    hourBuckets[hour]++;
   });
   charts.timeOfDay = new Chart(document.getElementById("chartTimeOfDay"), {
     type: "bar",
