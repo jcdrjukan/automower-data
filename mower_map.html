@@ -379,13 +379,16 @@ function traceBoundaryEdges(grid, minCount) {
   for (let gx = bounds.minX; gx <= bounds.maxX; gx++) {
     for (let gy = bounds.minY; gy <= bounds.maxY; gy++) {
       if (!isMowed(gx, gy)) continue;
-      const cx = gx * CELL_SIZE;
-      const cy = gy * CELL_SIZE;
-      const h = CELL_SIZE / 2;
-      if (!isMowed(gx, gy+1)) edges.push([[cy+h, cx-h],[cy+h, cx+h]]);
-      if (!isMowed(gx, gy-1)) edges.push([[cy-h, cx-h],[cy-h, cx+h]]);
-      if (!isMowed(gx+1, gy)) edges.push([[cy-h, cx+h],[cy+h, cx+h]]);
-      if (!isMowed(gx-1, gy)) edges.push([[cy-h, cx-h],[cy+h, cx-h]]);
+      // Use exact half-integer grid coordinates multiplied by CELL_SIZE
+      // This ensures endpoints shared between adjacent edges are exactly equal
+      const x0 = (gx - 0.5) * CELL_SIZE;
+      const x1 = (gx + 0.5) * CELL_SIZE;
+      const y0 = (gy - 0.5) * CELL_SIZE;
+      const y1 = (gy + 0.5) * CELL_SIZE;
+      if (!isMowed(gx, gy+1)) edges.push([[y1, x0],[y1, x1]]); // top
+      if (!isMowed(gx, gy-1)) edges.push([[y0, x0],[y0, x1]]); // bottom
+      if (!isMowed(gx+1, gy)) edges.push([[y0, x1],[y1, x1]]); // right
+      if (!isMowed(gx-1, gy)) edges.push([[y0, x0],[y1, x0]]); // left
     }
   }
   return edges;
@@ -395,57 +398,63 @@ function traceBoundaryEdges(grid, minCount) {
 function chainEdges(edges) {
   if (edges.length === 0) return [];
 
-  // Build adjacency map: endpoint -> list of edge indices
-  const ptKey = p => `${p[0].toFixed(8)},${p[1].toFixed(8)}`;
+  // Round coordinates to avoid floating point mismatches
+  const ptKey = p => `${Math.round(p[0]/CELL_SIZE*2)},${Math.round(p[1]/CELL_SIZE*2)}`;
+
+  // Build adjacency: endpoint string -> list of {edgeIdx, ptIdx}
   const adj = {};
+  const addAdj = (key, edgeIdx, ptIdx) => {
+    if (!adj[key]) adj[key] = [];
+    adj[key].push({ edgeIdx, ptIdx });
+  };
+
   edges.forEach((e, i) => {
-    const k0 = ptKey(e[0]), k1 = ptKey(e[1]);
-    if (!adj[k0]) adj[k0] = [];
-    if (!adj[k1]) adj[k1] = [];
-    adj[k0].push({ idx: i, end: 1 });
-    adj[k1].push({ idx: i, end: 0 });
+    addAdj(ptKey(e[0]), i, 0);
+    addAdj(ptKey(e[1]), i, 1);
   });
 
   const used = new Set();
   const chains = [];
 
-  edges.forEach((_, startIdx) => {
-    if (used.has(startIdx)) return;
-    const chain = [edges[startIdx][0], edges[startIdx][1]];
+  for (let startIdx = 0; startIdx < edges.length; startIdx++) {
+    if (used.has(startIdx)) continue;
     used.add(startIdx);
 
-    // Walk forward
-    let keepGoing = true;
-    while (keepGoing) {
-      keepGoing = false;
+    const chain = [...edges[startIdx]];
+
+    // Walk forward from end of chain
+    let walkForward = true;
+    while (walkForward) {
+      walkForward = false;
       const tip = chain[chain.length - 1];
       const neighbours = adj[ptKey(tip)] || [];
       for (const nb of neighbours) {
-        if (used.has(nb.idx)) continue;
-        used.add(nb.idx);
-        chain.push(edges[nb.idx][nb.end === 0 ? 1 : 0]);
-        keepGoing = true;
+        if (used.has(nb.edgeIdx)) continue;
+        used.add(nb.edgeIdx);
+        // Add the OTHER endpoint of this edge
+        chain.push(edges[nb.edgeIdx][nb.ptIdx === 0 ? 1 : 0]);
+        walkForward = true;
         break;
       }
     }
 
-    // Walk backward
-    keepGoing = true;
-    while (keepGoing) {
-      keepGoing = false;
+    // Walk backward from start of chain
+    let walkBackward = true;
+    while (walkBackward) {
+      walkBackward = false;
       const tip = chain[0];
       const neighbours = adj[ptKey(tip)] || [];
       for (const nb of neighbours) {
-        if (used.has(nb.idx)) continue;
-        used.add(nb.idx);
-        chain.unshift(edges[nb.idx][nb.end === 0 ? 1 : 0]);
-        keepGoing = true;
+        if (used.has(nb.edgeIdx)) continue;
+        used.add(nb.edgeIdx);
+        chain.unshift(edges[nb.edgeIdx][nb.ptIdx === 0 ? 1 : 0]);
+        walkBackward = true;
         break;
       }
     }
 
-    if (chain.length > 1) chains.push(chain);
-  });
+    if (chain.length > 2) chains.push(chain);
+  }
 
   return chains;
 }
