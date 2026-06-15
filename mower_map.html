@@ -198,6 +198,11 @@
         Show
       </label>
     </div>
+    <div class="hc-row">
+      <span class="hc-label">Smoothing</span>
+      <input type="range" id="hcSmoothing" min="0" max="5" value="2" oninput="updateHeatmap()">
+      <span class="hc-value" id="hcSmoothingVal">2</span>
+    </div>
     <div style="color:#3a6a3a;font-size:10px;margin-top:6px">Filtered: <span id="hcFilteredCount">—</span> pts from <span id="hcTotalCount">—</span></div>
   </div>
   <div class="overlay" id="overlay" onclick="closeMenu()"></div>
@@ -281,6 +286,13 @@
             <input type="checkbox" id="mHcBoundary" onchange="syncBoundary(this.checked);updateHeatmap()" style="accent-color:#5cdb5c">
             Show
           </label>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+            <span style="color:#4a7a4a">Smoothing</span>
+            <span style="color:#a0d0a0" id="mHcSmoothingVal">2</span>
+          </div>
+          <input type="range" id="mHcSmoothing" min="0" max="5" value="2" style="width:100%;accent-color:#5cdb5c" oninput="syncSlider('Smoothing',this.value);updateHeatmap()">
         </div>
       </div>
     </div>
@@ -370,17 +382,94 @@ function traceBoundaryEdges(grid, minCount) {
       const cx = gx * CELL_SIZE;
       const cy = gy * CELL_SIZE;
       const h = CELL_SIZE / 2;
-      // Top edge
       if (!isMowed(gx, gy+1)) edges.push([[cy+h, cx-h],[cy+h, cx+h]]);
-      // Bottom edge
       if (!isMowed(gx, gy-1)) edges.push([[cy-h, cx-h],[cy-h, cx+h]]);
-      // Right edge
       if (!isMowed(gx+1, gy)) edges.push([[cy-h, cx+h],[cy+h, cx+h]]);
-      // Left edge
       if (!isMowed(gx-1, gy)) edges.push([[cy-h, cx-h],[cy+h, cx-h]]);
     }
   }
   return edges;
+}
+
+// Chain individual edge segments into connected polylines
+function chainEdges(edges) {
+  if (edges.length === 0) return [];
+
+  // Build adjacency map: endpoint -> list of edge indices
+  const ptKey = p => `${p[0].toFixed(8)},${p[1].toFixed(8)}`;
+  const adj = {};
+  edges.forEach((e, i) => {
+    const k0 = ptKey(e[0]), k1 = ptKey(e[1]);
+    if (!adj[k0]) adj[k0] = [];
+    if (!adj[k1]) adj[k1] = [];
+    adj[k0].push({ idx: i, end: 1 });
+    adj[k1].push({ idx: i, end: 0 });
+  });
+
+  const used = new Set();
+  const chains = [];
+
+  edges.forEach((_, startIdx) => {
+    if (used.has(startIdx)) return;
+    const chain = [edges[startIdx][0], edges[startIdx][1]];
+    used.add(startIdx);
+
+    // Walk forward
+    let keepGoing = true;
+    while (keepGoing) {
+      keepGoing = false;
+      const tip = chain[chain.length - 1];
+      const neighbours = adj[ptKey(tip)] || [];
+      for (const nb of neighbours) {
+        if (used.has(nb.idx)) continue;
+        used.add(nb.idx);
+        chain.push(edges[nb.idx][nb.end === 0 ? 1 : 0]);
+        keepGoing = true;
+        break;
+      }
+    }
+
+    // Walk backward
+    keepGoing = true;
+    while (keepGoing) {
+      keepGoing = false;
+      const tip = chain[0];
+      const neighbours = adj[ptKey(tip)] || [];
+      for (const nb of neighbours) {
+        if (used.has(nb.idx)) continue;
+        used.add(nb.idx);
+        chain.unshift(edges[nb.idx][nb.end === 0 ? 1 : 0]);
+        keepGoing = true;
+        break;
+      }
+    }
+
+    if (chain.length > 1) chains.push(chain);
+  });
+
+  return chains;
+}
+
+// Chaikin smoothing: each iteration cuts corners
+function chaikinSmooth(points, iterations) {
+  if (iterations === 0) return points;
+  let pts = points;
+  for (let i = 0; i < iterations; i++) {
+    const smoothed = [];
+    for (let j = 0; j < pts.length - 1; j++) {
+      const p0 = pts[j], p1 = pts[j+1];
+      smoothed.push([p0[0]*0.75 + p1[0]*0.25, p0[1]*0.75 + p1[1]*0.25]);
+      smoothed.push([p0[0]*0.25 + p1[0]*0.75, p0[1]*0.25 + p1[1]*0.75]);
+    }
+    // Close loop if first and last points are close
+    const first = pts[0], last = pts[pts.length-1];
+    const dist = Math.sqrt(Math.pow(first[0]-last[0],2) + Math.pow(first[1]-last[1],2));
+    if (dist < CELL_SIZE * 2) {
+      smoothed.push(smoothed[0]);
+    }
+    pts = smoothed;
+  }
+  return pts;
 }
 
 let boundaryLayer = null;
@@ -446,13 +535,19 @@ function buildHeatmap() {
     gradient: { 0.0:"#0000ff", 0.3:"#00ffff", 0.5:"#00ff00", 0.7:"#ffff00", 1.0:"#ff0000" }
   }).addTo(map);
 
-  // Draw grid-based boundary (handles interior exclusion zones correctly)
+  const smoothing = parseInt(document.getElementById("hcSmoothing").value);
+
+  // Draw grid-based boundary with Chaikin smoothing
   if (showBoundary && filtered.length >= 3) {
     const edges = traceBoundaryEdges(grid, minCount);
-    const edgeLines = edges.map(e => L.polyline(e, {
-      color: "#7ec87e", weight: 1.5, opacity: 0.8, dashArray: "4,4"
-    }));
-    boundaryLayer = L.layerGroup(edgeLines).addTo(map);
+    const chains = chainEdges(edges);
+    const smoothedLines = chains.map(chain => {
+      const smoothed = chaikinSmooth(chain, smoothing);
+      return L.polyline(smoothed, {
+        color: "#7ec87e", weight: 1.5, opacity: 0.9, dashArray: smoothing > 0 ? null : "4,4"
+      });
+    });
+    boundaryLayer = L.layerGroup(smoothedLines).addTo(map);
   }
 }
 
@@ -461,14 +556,17 @@ function updateHeatmap() {
   const b = document.getElementById("hcBlur").value;
   const m = document.getElementById("hcMax").value;
   const c = document.getElementById("hcConfidence").value;
+  const s = document.getElementById("hcSmoothing").value;
   document.getElementById("hcRadiusVal").textContent = r;
   document.getElementById("hcBlurVal").textContent = b;
   document.getElementById("hcMaxVal").textContent = m;
   document.getElementById("hcConfidenceVal").textContent = c;
+  document.getElementById("hcSmoothingVal").textContent = s;
   document.getElementById("mHcRadiusVal").textContent = r;
   document.getElementById("mHcBlurVal").textContent = b;
   document.getElementById("mHcMaxVal").textContent = m;
   document.getElementById("mHcConfidenceVal").textContent = c;
+  document.getElementById("mHcSmoothingVal").textContent = s;
   if (currentMode === "heat") buildHeatmap();
 }
 
@@ -477,7 +575,8 @@ function syncSlider(name, value) {
     Radius: ["hcRadius","mHcRadius"],
     Blur: ["hcBlur","mHcBlur"],
     Max: ["hcMax","mHcMax"],
-    Confidence: ["hcConfidence","mHcConfidence"]
+    Confidence: ["hcConfidence","mHcConfidence"],
+    Smoothing: ["hcSmoothing","mHcSmoothing"]
   };
   sliderMap[name].forEach(id => { const el=document.getElementById(id); if(el) el.value=value; });
 }
