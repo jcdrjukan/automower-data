@@ -224,7 +224,7 @@
     <canvas id="chartActivity"></canvas>
   </div>
   <div class="chart-card">
-    <div class="chart-title">Battery Health — Departure vs Return Level</div>
+    <div class="chart-title">Battery Health — Mowing Cycle Duration</div>
     <canvas id="chartSessionLength"></canvas>
   </div>
   <div class="chart-card">
@@ -1154,33 +1154,40 @@ function buildCharts() {
       plugins: { legend: { labels: { color: "#7ec87e", font: { size: 10 } }, position: "bottom" } } }
   });
 
-  // --- Chart 5: Battery health — departure and return levels per day ---
-  // LEAVING = battery level when heading out (should be ~100% if fully charged)
-  // GOING_HOME = battery level when returning (shows how depleted before recharge)
-  const departBattery = {}; // date -> [battery%]
-  const returnBattery = {}; // date -> [battery%]
+  // --- Chart 5: Mowing cycle duration — time from LEAVING to GOING_HOME ---
+  // This is the most accurate battery health indicator:
+  // as battery degrades, cycles get shorter even if % readings look the same
+  const sorted = allData.slice().sort((a,b) => a.timestamp.localeCompare(b.timestamp));
+  const cycleDurations = {}; // date -> [minutes]
 
-  allData.forEach(s => {
-    if (s.battery == null) return;
-    const date = s.timestamp.slice(0,10);
-    if (s.activity === "LEAVING") {
-      if (!departBattery[date]) departBattery[date] = [];
-      departBattery[date].push(s.battery);
-    } else if (s.activity === "GOING_HOME") {
-      if (!returnBattery[date]) returnBattery[date] = [];
-      returnBattery[date].push(s.battery);
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const curr = sorted[i];
+    if (curr.activity !== "LEAVING") continue;
+    // Find the next GOING_HOME after this LEAVING
+    for (let j = i + 1; j < sorted.length; j++) {
+      const next = sorted[j];
+      const gap = (new Date(next.timestamp) - new Date(curr.timestamp)) / 60000;
+      if (gap > 180) break; // give up after 3 hours — something unusual happened
+      if (next.activity === "GOING_HOME") {
+        const date = curr.timestamp.slice(0,10);
+        if (!cycleDurations[date]) cycleDurations[date] = [];
+        cycleDurations[date].push(gap);
+        break;
+      }
     }
+  }
+
+  const avgCycle = dates.map(d => {
+    const vals = cycleDurations[d];
+    if (!vals || !vals.length) return null;
+    return Math.round(vals.reduce((a,b) => a+b, 0) / vals.length);
   });
 
-  const avgDepart = dates.map(d => {
-    const vals = departBattery[d];
-    if (!vals || !vals.length) return null;
-    return Math.round(vals.reduce((a,b) => a+b, 0) / vals.length);
-  });
-  const avgReturn = dates.map(d => {
-    const vals = returnBattery[d];
-    if (!vals || !vals.length) return null;
-    return Math.round(vals.reduce((a,b) => a+b, 0) / vals.length);
+  // 3-day rolling average to smooth noise
+  const smoothCycle = avgCycle.map((v, i) => {
+    const slice = avgCycle.slice(Math.max(0, i-2), i+1).filter(x => x !== null);
+    if (!slice.length) return null;
+    return Math.round(slice.reduce((a,b) => a+b, 0) / slice.length);
   });
 
   charts.sessionLength = new Chart(document.getElementById("chartSessionLength"), {
@@ -1188,12 +1195,14 @@ function buildCharts() {
     data: {
       labels: dates.map(d => fmtDate(d)),
       datasets: [
-        { label: "Battery on departure (%)", data: avgDepart,
+        { label: "Avg cycle (min)", data: avgCycle,
+          borderColor: "#2d6b2d", backgroundColor: "rgba(45,107,45,0.1)",
+          borderWidth: 1, pointRadius: 2, fill: false, tension: 0.3,
+          spanGaps: true, borderDash: [4,4] },
+        { label: "3-day rolling avg (min)", data: smoothCycle,
           borderColor: "#5cdb5c", backgroundColor: "rgba(92,219,92,0.1)",
-          borderWidth: 2, pointRadius: 3, fill: false, tension: 0.3, spanGaps: true },
-        { label: "Battery on return (%)", data: avgReturn,
-          borderColor: "#ffaa00", backgroundColor: "rgba(255,170,0,0.1)",
-          borderWidth: 2, pointRadius: 3, fill: false, tension: 0.3, spanGaps: true }
+          borderWidth: 2, pointRadius: 2, fill: true, tension: 0.3,
+          spanGaps: true }
       ]
     },
     options: {
@@ -1201,8 +1210,8 @@ function buildCharts() {
       plugins: { legend: { labels: { color: "#7ec87e", font: { size: 10 } } } },
       scales: {
         x: { ticks: { color: "#4a7a4a", font: { size: 10 } }, grid: { color: "#1e3a1e" } },
-        y: { ticks: { color: "#4a7a4a", font: { size: 10 }, callback: v => v + "%" },
-             grid: { color: "#1e3a1e" }, min: 0, max: 100 }
+        y: { ticks: { color: "#4a7a4a", font: { size: 10 }, callback: v => v + "m" },
+             grid: { color: "#1e3a1e" }, min: 0 }
       }
     }
   });
