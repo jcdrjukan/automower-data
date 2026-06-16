@@ -708,9 +708,8 @@ function hideStats() {
 
 // ── COVERAGE VIEW ──────────────────────────────────────────────────────────
 
-const COVER_CELL = 0.000018; // ~2m cells for boundary
-const CUT_CELL   = 0.000018; // ~2m cells for coverage grid
-const CUT_WIDTH  = 0.000004; // ~4cm visual track width each side
+const COVER_CELL = 0.000018; // ~2m cells for boundary and % calculation
+const DISP_CELL  = 0.000005; // ~0.5m cells for visual display
 
 let coveragePeriod = "session";
 let coverageLayers = [];
@@ -852,57 +851,63 @@ function renderCoverage() {
   // Build garden cell set from boundary reachable cells
   const gardenCellCount = boundary ? boundary.reachable.size : 0;
 
-  // Build cut coverage — mark grid cells containing GPS points
-  // Use same COVER_CELL grid as boundary for accurate % comparison
-  const cutCells = new Set();
+  // Build cut coverage on two grids:
+  // - Fine grid (0.5m) for visual display
+  // - Coarse grid (2m) for % calculation vs boundary
+  const dispCells = new Set();
+  const pctCells = new Set();
+
   sessions.forEach(session => {
     const positions = session.positions;
     for (let i = 0; i < positions.length; i++) {
       const p = positions[i];
-      // Mark cell containing this point
-      const gx = Math.round(p.longitude / COVER_CELL);
-      const gy = Math.round(p.latitude / COVER_CELL);
-      cutCells.add(`${gx},${gy}`);
+
+      // Mark display cell
+      dispCells.add(`${Math.round(p.longitude/DISP_CELL)},${Math.round(p.latitude/DISP_CELL)}`);
+      // Mark coarse cell for %
+      pctCells.add(`${Math.round(p.longitude/COVER_CELL)},${Math.round(p.latitude/COVER_CELL)}`);
+
       // Interpolate between consecutive points
       if (i < positions.length - 1) {
         const p2 = positions[i+1];
         const steps = Math.ceil(Math.sqrt(
-          Math.pow((p2.longitude-p.longitude)/COVER_CELL, 2) +
-          Math.pow((p2.latitude-p.latitude)/COVER_CELL, 2)
-        ) * 2);
+          Math.pow((p2.longitude-p.longitude)/DISP_CELL, 2) +
+          Math.pow((p2.latitude-p.latitude)/DISP_CELL, 2)
+        ) * 1.5);
         for (let s = 1; s < steps; s++) {
           const t = s/steps;
           const iLon = p.longitude + (p2.longitude-p.longitude)*t;
           const iLat = p.latitude + (p2.latitude-p.latitude)*t;
-          cutCells.add(`${Math.round(iLon/COVER_CELL)},${Math.round(iLat/COVER_CELL)}`);
+          dispCells.add(`${Math.round(iLon/DISP_CELL)},${Math.round(iLat/DISP_CELL)}`);
+          pctCells.add(`${Math.round(iLon/COVER_CELL)},${Math.round(iLat/COVER_CELL)}`);
         }
       }
     }
   });
 
-  // Render cut cells — draw wider than the grid cell for visual clarity
-  const VISUAL = COVER_CELL * 0.6; // slightly narrower than cell so gaps show between tracks
+  // Render fine grid cells — slightly smaller than cell for visible gaps between tracks
+  const VISUAL = DISP_CELL * 0.55;
   const cutRects = [];
-  cutCells.forEach(key => {
+  dispCells.forEach(key => {
     const [gx, gy] = key.split(",").map(Number);
-    const lat = gy * COVER_CELL;
-    const lon = gx * COVER_CELL;
+    const lat = gy * DISP_CELL;
+    const lon = gx * DISP_CELL;
     cutRects.push(L.rectangle([
       [lat - VISUAL, lon - VISUAL],
       [lat + VISUAL, lon + VISUAL]
     ], {
       color: "none", fillColor: "#5cdb5c",
-      fillOpacity: 0.5, weight: 0
+      fillOpacity: 0.55, weight: 0
     }));
   });
 
   const cutLayer = L.layerGroup(cutRects).addTo(map);
   coverageLayers.push(cutLayer);
 
-  // Coverage percentage — cut cells vs garden boundary cells (same grid)
+  // Coverage percentage — coarse pct cells vs garden boundary cells
   let pctText = "—", detailText = "";
   if (boundary && gardenCellCount > 0) {
-    const coveredInGarden = [...cutCells].filter(k => boundary.reachable.has(k)).length;
+    const coveredInGarden = [...pctCells].filter(k => boundary.reachable.has(k)).length;
     const pct = Math.min(100, Math.round(coveredInGarden / gardenCellCount * 100));
     pctText = pct + "%";
     detailText = `(${coveredInGarden} of ${gardenCellCount} areas)`;
