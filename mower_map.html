@@ -245,6 +245,13 @@
       <button class="period-btn" id="pBtn3days" onclick="setCoveragePeriod('3days')">3 Days</button>
       <button class="period-btn" id="pBtn7days" onclick="setCoveragePeriod('7days')">7 Days</button>
     </div>
+    <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:#4a7a4a">
+      <span>Edge sensitivity</span>
+      <input type="range" id="sobelThreshold" min="1" max="50" value="8" step="0.5"
+        style="flex:1;accent-color:#ffaa00;min-width:120px"
+        oninput="document.getElementById('sobelVal').textContent=this.value;redrawBoundary()">
+      <span id="sobelVal" style="color:#ffaa00;min-width:24px">8</span>
+    </div>
     <div class="coverage-stat">
       Coverage: <strong id="coveragePct">—</strong>
       <span id="coverageDetail" style="font-size:10px;margin-left:6px">—</span>
@@ -767,44 +774,52 @@ function getSessionsForPeriod(period) {
   return [];
 }
 
-// ── GRADIENT-BASED BOUNDARY & OBSTACLE DETECTION ─────────────────────────
-// Uses Sobel edge detection on the density grid — finds sharp density drops
-// everywhere simultaneously: outer boundary AND interior obstacles
+// ── UNIFIED SOBEL BOUNDARY & OBSTACLE DETECTION ───────────────────────────
 
-function computeBoundary() {
+let cachedGradient = null;   // gradient map — recomputed only when data changes
+let cachedReachable = null;  // reachable core — recomputed only when data changes
+let cachedGrid = null;       // raw density grid
+let cachedSessionCount = 0;  // detect when data changes
+
+function computeGradient() {
+  // Only recompute if data has changed
+  if (cachedSessionCount === allData.length && cachedGradient) return;
+  cachedSessionCount = allData.length;
+
   const allPositions = allData.flatMap(s => s.positions);
-  if (allPositions.length < 10) return null;
+  if (allPositions.length < 10) { cachedGradient = null; return; }
 
-  const sessionCount = allData.length;
-
-  // Pass 1: Build 1m density grid
+  // Pass 1: 1m density grid
   const grid = {};
   allPositions.forEach(p => {
     const key = `${Math.round(p.longitude/COVER_CELL)},${Math.round(p.latitude/COVER_CELL)}`;
     grid[key] = (grid[key] || 0) + 1;
   });
+  cachedGrid = grid;
 
   const getD = (gx, gy) => grid[`${gx},${gy}`] || 0;
 
-  // Pass 2: Gaussian blur — smooth density to reduce GPS noise spikes
-  // Each cell gets a weighted average of itself and neighbours
+  // Pass 2: Gaussian blur
   const blurred = {};
+  // Expand to include neighbours of all visited cells
+  const toBlur = new Set();
   Object.keys(grid).forEach(key => {
     const [gx, gy] = key.split(",").map(Number);
-    // 3x3 Gaussian kernel weights: centre=4, edges=2, corners=1 (normalised)
-    const val = (
+    for (let dx=-1; dx<=1; dx++) for (let dy=-1; dy<=1; dy++) toBlur.add(`${gx+dx},${gy+dy}`);
+  });
+  toBlur.forEach(key => {
+    const [gx, gy] = key.split(",").map(Number);
+    blurred[key] = (
       getD(gx-1,gy-1)*1 + getD(gx,gy-1)*2 + getD(gx+1,gy-1)*1 +
       getD(gx-1,gy  )*2 + getD(gx,gy  )*4 + getD(gx+1,gy  )*2 +
       getD(gx-1,gy+1)*1 + getD(gx,gy+1)*2 + getD(gx+1,gy+1)*1
     ) / 16;
-    blurred[key] = val;
   });
   const getB = (gx, gy) => blurred[`${gx},${gy}`] || 0;
 
-  // Pass 3: Sobel gradient magnitude at each cell
-  // Gx = horizontal gradient, Gy = vertical gradient
+  // Pass 3: Sobel gradient magnitude — applied to ALL cells including boundary zone
   const gradient = {};
-  Object.keys(blurred).forEach(key => {
+  toBlur.forEach(key => {
     const [gx, gy] = key.split(",").map(Number);
     const Gx = (
       -1*getB(gx-1,gy-1) + 1*getB(gx+1,gy-1) +
@@ -817,109 +832,134 @@ function computeBoundary() {
     );
     gradient[key] = Math.sqrt(Gx*Gx + Gy*Gy);
   });
+  cachedGradient = gradient;
 
-  // Pass 4: Adaptive gradient threshold
-  // As sessions accumulate, density grows and gradients become sharper
-  // We pick the threshold at the top 15% of gradient values
-  const gradVals = Object.values(gradient).sort((a,b) => a-b);
-  const gradThreshold = gradVals[Math.floor(gradVals.length * 0.85)];
-
-  // Pass 5: Edge cells = high gradient AND adjacent to visited area
-  const edgeCells = new Set();
-  Object.entries(gradient).forEach(([key, g]) => {
-    if (g >= gradThreshold && (grid[key] || 0) > 0) {
-      edgeCells.add(key);
-    }
-  });
-
-  // Pass 6: Find the "garden core" — cells with density above median
-  // Used for coverage % and flood-fill seeding
-  const densities = Object.values(grid).sort((a,b) => a-b);
-  const medianDensity = densities[Math.floor(densities.length * 0.5)];
+  // Pass 4: Build reachable core for coverage % calculation
+  const counts = Object.values(grid).sort((a,b) => a-b);
+  const coreThreshold = Math.max(2, counts[Math.floor(counts.length * 0.5)]);
   const coreCells = new Set(
-    Object.entries(grid)
-      .filter(([,v]) => v >= medianDensity)
-      .map(([k]) => k)
+    Object.entries(grid).filter(([,v]) => v >= coreThreshold).map(([k]) => k)
   );
-
-  // Pass 7: Flood-fill reachable core from densest cell
   let maxCount = 0, seedKey = null;
   Object.entries(grid).forEach(([key, count]) => {
     if (count > maxCount && coreCells.has(key)) { maxCount = count; seedKey = key; }
   });
-
   const reachable = new Set();
   if (seedKey) {
-    const queue = [seedKey];
-    reachable.add(seedKey);
+    const queue = [seedKey]; reachable.add(seedKey);
     while (queue.length > 0) {
       const key = queue.shift();
       const [gx, gy] = key.split(",").map(Number);
       [[0,1],[0,-1],[1,0],[-1,0]].forEach(([dx,dy]) => {
         const nk = `${gx+dx},${gy+dy}`;
-        if (!reachable.has(nk) && coreCells.has(nk)) {
-          reachable.add(nk);
-          queue.push(nk);
-        }
+        if (!reachable.has(nk) && coreCells.has(nk)) { reachable.add(nk); queue.push(nk); }
       });
     }
   }
+  cachedReachable = reachable;
+}
 
-  // Pass 8: Build boundary edges from edge cells that border the core
-  // This gives us both outer boundary and interior obstacle edges
-  const boundaryEdges = [];
-  const obstacleEdges = [];
+function computeBoundary() {
+  if (!cachedGradient) return null;
 
+  const threshold = parseFloat(document.getElementById("sobelThreshold").value);
+  const gradient = cachedGradient;
+  const reachable = cachedReachable;
+  const grid = cachedGrid;
+  const sessionCount = allData.length;
+
+  // Find all edge cells above threshold
+  // No distinction between outer boundary and interior — Sobel sees all equally
+  const edgeCells = new Set(
+    Object.entries(gradient)
+      .filter(([, g]) => g >= threshold)
+      .map(([k]) => k)
+  );
+
+  // Build edges where edge cells border lower-density cells
+  const allEdges = [];
   edgeCells.forEach(key => {
     const [gx, gy] = key.split(",").map(Number);
     const h = COVER_CELL / 2;
     const cx = gx * COVER_CELL;
     const cy = gy * COVER_CELL;
-    const isCore = reachable.has(key);
-
     [[0,1],[0,-1],[1,0],[-1,0]].forEach(([dx,dy]) => {
       const nk = `${gx+dx},${gy+dy}`;
-      const nIsCore = reachable.has(nk);
-      const nIsEdge = edgeCells.has(nk);
-
-      if (isCore !== nIsCore || (isCore && nIsEdge)) {
-        // This is a boundary between core and non-core — draw an edge
-        let edge;
-        if (dy !== 0) {
-          const ey = cy + dy * h;
-          edge = [[ey, cx-h],[ey, cx+h]];
-        } else {
-          const ex = cx + dx * h;
-          edge = [[cy-h, ex],[cy+h, ex]];
-        }
-        // Classify as outer boundary or interior obstacle
-        if (!isCore && nIsCore) {
-          boundaryEdges.push(edge);
-        } else {
-          obstacleEdges.push(edge);
-        }
+      const myG = gradient[key] || 0;
+      const nG = gradient[nk] || 0;
+      // Draw edge on the side facing lower gradient (the "downhill" side)
+      if (myG > nG) {
+        if (dy !== 0) allEdges.push([[cy+dy*h, cx-h],[cy+dy*h, cx+h]]);
+        else allEdges.push([[cy-h, cx+dx*h],[cy+h, cx+dx*h]]);
       }
     });
   });
 
-  // Pass 9: Chain and smooth boundary edges
-  const boundaryChains = chainEdges(boundaryEdges);
-  const obstacleChains = chainEdges(obstacleEdges);
-
-  const smoothChains = arr => arr
-    .filter(c => c.length > 4)
+  const chains = chainEdges(allEdges);
+  const smoothed = chains
+    .filter(c => c.length >= 4)
     .map(c => chaikinSmooth(c, 3));
+
+  // Classify chains: chains whose centroid is near the garden edge = boundary
+  // chains whose centroid is well inside reachable area = obstacles
+  const boundaryChains = [];
+  const obstacleChains = [];
+
+  smoothed.forEach(chain => {
+    const centLat = chain.reduce((s,p) => s+p[0], 0) / chain.length;
+    const centLon = chain.reduce((s,p) => s+p[1], 0) / chain.length;
+    const centKey = `${Math.round(centLon/COVER_CELL)},${Math.round(centLat/COVER_CELL)}`;
+    // Check how many neighbours of centroid are reachable
+    const [cgx, cgy] = centKey.split(",").map(Number);
+    const reachableNeighbours = [[0,1],[0,-1],[1,0],[-1,0],[1,1],[-1,1],[1,-1],[-1,-1]]
+      .filter(([dx,dy]) => reachable.has(`${cgx+dx},${cgy+dy}`)).length;
+    // Interior obstacles are surrounded by reachable cells on most sides
+    if (reachableNeighbours >= 6) obstacleChains.push(chain);
+    else boundaryChains.push(chain);
+  });
 
   const confidence = Math.min(100, Math.round(sessionCount * 0.8));
 
   return {
-    boundaryChains: smoothChains(boundaryChains),
-    obstacleChains: smoothChains(obstacleChains),
+    boundaryChains,
+    obstacleChains,
     reachable,
-    gradThreshold,
+    threshold,
     confidence,
     sessionCount
   };
+}
+
+// Fast redraw using cached gradient — just re-threshold and redraw lines
+function redrawBoundary() {
+  // Remove existing boundary lines without clearing coverage rectangles
+  coverageLayers = coverageLayers.filter(l => {
+    if (l._isBoundaryLine) { map.removeLayer(l); return false; }
+    return true;
+  });
+  if (boundaryPolygon) { map.removeLayer(boundaryPolygon); boundaryPolygon = null; }
+
+  const boundary = computeBoundary();
+  if (!boundary) return;
+
+  boundary.boundaryChains.forEach(chain => {
+    const line = L.polyline(chain, {
+      color: "#ffaa00", weight: 1.5, opacity: 0.85, dashArray: "5,4"
+    }).addTo(map);
+    line._isBoundaryLine = true;
+    coverageLayers.push(line);
+  });
+  boundary.obstacleChains.forEach(chain => {
+    const line = L.polyline(chain, {
+      color: "#ff4444", weight: 1.5, opacity: 0.75, dashArray: "3,4"
+    }).addTo(map);
+    line._isBoundaryLine = true;
+    coverageLayers.push(line);
+  });
+
+  document.getElementById("boundaryConfidence").textContent =
+    `Confidence: ${boundary.confidence}% · Threshold: ${boundary.threshold} · Sessions: ${boundary.sessionCount}` +
+    (boundary.obstacleChains.length > 0 ? ` · Obstacles: ${boundary.obstacleChains.length}` : "");
 }
 
 // ── CUT COVERAGE RENDERING ────────────────────────────────────────────────
@@ -936,10 +976,11 @@ function renderCoverage() {
     return;
   }
 
-  // Compute boundary
-  const boundary = computeBoundary();
+  // Compute gradient (cached — only recalculates when data changes)
+  computeGradient();
 
-  // Build garden cell set from boundary reachable cells
+  // Compute boundary using current slider threshold
+  const boundary = computeBoundary();
   const gardenCellCount = boundary ? boundary.reachable.size : 0;
 
   // Build cut coverage on two grids:
@@ -1006,26 +1047,8 @@ function renderCoverage() {
   document.getElementById("coveragePct").textContent = pctText;
   document.getElementById("coverageDetail").textContent = detailText;
 
-  // Draw boundary and obstacle edges
-  if (boundary) {
-    // Outer boundary — amber dashed
-    boundary.boundaryChains.forEach(chain => {
-      const line = L.polyline(chain, {
-        color: "#ffaa00", weight: 1.5, opacity: 0.85, dashArray: "5,4"
-      }).addTo(map);
-      coverageLayers.push(line);
-    });
-    // Interior obstacles — red dashed (will appear as data accumulates)
-    boundary.obstacleChains.forEach(chain => {
-      const line = L.polyline(chain, {
-        color: "#ff4444", weight: 1.5, opacity: 0.75, dashArray: "3,4"
-      }).addTo(map);
-      coverageLayers.push(line);
-    });
-    document.getElementById("boundaryConfidence").textContent =
-      `Boundary confidence: ${boundary.confidence}% · Gradient threshold: ${boundary.gradThreshold.toFixed(1)} · Sessions: ${boundary.sessionCount}` +
-      (boundary.obstacleChains.length > 0 ? ` · Obstacles detected: ${boundary.obstacleChains.length}` : "");
-  }
+  // Draw boundary using current Sobel threshold (fast — uses cached gradient)
+  redrawBoundary();
 
   // Fit map to cut area
   if (cutRects.length > 0) {
@@ -1302,6 +1325,7 @@ async function refreshData() {
     document.getElementById("statusText").textContent="Error: "+e.message;
   }
   updateStats(allData);
+  cachedSessionCount = 0; // invalidate gradient cache
   showAll();
 }
 
