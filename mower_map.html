@@ -1155,7 +1155,6 @@ function buildCharts() {
   });
 
   // --- Chart 5: Average mowing & charging duration per day ---
-  // Use timestamp gaps between consecutive sessions to estimate durations
   const sorted = allData.slice().sort((a,b) => a.timestamp.localeCompare(b.timestamp));
   const mowingDurations = {}; // date -> [minutes]
   const chargingDurations = {}; // date -> [minutes]
@@ -1163,15 +1162,20 @@ function buildCharts() {
   for (let i = 0; i < sorted.length - 1; i++) {
     const curr = sorted[i];
     const next = sorted[i+1];
-    const gap = (new Date(next.timestamp) - new Date(curr.timestamp)) / 60000; // minutes
-    if (gap > 120) continue; // skip gaps > 2hrs (overnight, paused etc)
+    const gap = (new Date(next.timestamp) - new Date(curr.timestamp)) / 60000;
+    if (gap > 180) continue; // skip gaps > 3hrs
     const date = curr.timestamp.slice(0,10);
-    const isMowing = ["MOWING","LEAVING","GOING_HOME"].includes(curr.activity);
-    const isCharging = ["CHARGING","PARKED_IN_CS"].includes(curr.activity);
-    if (isMowing) {
+
+    // Mowing duration: time between consecutive mowing-type sessions
+    if (["MOWING","LEAVING"].includes(curr.activity) &&
+        ["MOWING","LEAVING","GOING_HOME"].includes(next.activity)) {
       if (!mowingDurations[date]) mowingDurations[date] = [];
       mowingDurations[date].push(gap);
-    } else if (isCharging) {
+    }
+
+    // Charging duration: infer from gap between GOING_HOME and next LEAVING/MOWING
+    if (curr.activity === "GOING_HOME" &&
+        ["MOWING","LEAVING"].includes(next.activity)) {
       if (!chargingDurations[date]) chargingDurations[date] = [];
       chargingDurations[date].push(gap);
     }
@@ -1195,12 +1199,10 @@ function buildCharts() {
       datasets: [
         { label: "Avg mowing (min)", data: avgMowing,
           borderColor: "#5cdb5c", backgroundColor: "rgba(92,219,92,0.1)",
-          borderWidth: 2, pointRadius: 2, fill: false, tension: 0.3,
-          spanGaps: true },
-        { label: "Avg charging (min)", data: avgCharging,
+          borderWidth: 2, pointRadius: 3, fill: false, tension: 0.3, spanGaps: true },
+        { label: "Avg charge cycle (min)", data: avgCharging,
           borderColor: "#ffaa00", backgroundColor: "rgba(255,170,0,0.1)",
-          borderWidth: 2, pointRadius: 2, fill: false, tension: 0.3,
-          spanGaps: true }
+          borderWidth: 2, pointRadius: 3, fill: false, tension: 0.3, spanGaps: true }
       ]
     },
     options: {
