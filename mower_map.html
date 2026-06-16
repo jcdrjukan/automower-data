@@ -709,8 +709,8 @@ function hideStats() {
 // ── COVERAGE VIEW ──────────────────────────────────────────────────────────
 
 const COVER_CELL = 0.000018; // ~2m cells for boundary
-const CUT_CELL   = 0.000002; // ~0.2m cells for cut coverage (matches 22cm cutting width)
-const CUT_WIDTH  = 0.000022; // 22cm in degrees (~11cm each side)
+const CUT_CELL   = 0.000018; // ~2m cells for coverage grid
+const CUT_WIDTH  = 0.000004; // ~4cm visual track width each side
 
 let coveragePeriod = "session";
 let coverageLayers = [];
@@ -852,77 +852,57 @@ function renderCoverage() {
   // Build garden cell set from boundary reachable cells
   const gardenCellCount = boundary ? boundary.reachable.size : 0;
 
-  // Build cut coverage using fine grid (~20cm cells)
+  // Build cut coverage — mark grid cells containing GPS points
+  // Use same COVER_CELL grid as boundary for accurate % comparison
   const cutCells = new Set();
   sessions.forEach(session => {
     const positions = session.positions;
     for (let i = 0; i < positions.length; i++) {
       const p = positions[i];
-      // Mark cells within cutting width of this point
-      const gx0 = Math.round((p.longitude - CUT_WIDTH) / CUT_CELL);
-      const gx1 = Math.round((p.longitude + CUT_WIDTH) / CUT_CELL);
-      const gy0 = Math.round((p.latitude - CUT_WIDTH) / CUT_CELL);
-      const gy1 = Math.round((p.latitude + CUT_WIDTH) / CUT_CELL);
-      for (let gx = gx0; gx <= gx1; gx++) {
-        for (let gy = gy0; gy <= gy1; gy++) {
-          cutCells.add(`${gx},${gy}`);
-        }
-      }
-      // Also interpolate between consecutive points
+      // Mark cell containing this point
+      const gx = Math.round(p.longitude / COVER_CELL);
+      const gy = Math.round(p.latitude / COVER_CELL);
+      cutCells.add(`${gx},${gy}`);
+      // Interpolate between consecutive points
       if (i < positions.length - 1) {
         const p2 = positions[i+1];
         const steps = Math.ceil(Math.sqrt(
-          Math.pow((p2.longitude-p.longitude)/CUT_CELL, 2) +
-          Math.pow((p2.latitude-p.latitude)/CUT_CELL, 2)
-        ));
+          Math.pow((p2.longitude-p.longitude)/COVER_CELL, 2) +
+          Math.pow((p2.latitude-p.latitude)/COVER_CELL, 2)
+        ) * 2);
         for (let s = 1; s < steps; s++) {
           const t = s/steps;
           const iLon = p.longitude + (p2.longitude-p.longitude)*t;
           const iLat = p.latitude + (p2.latitude-p.latitude)*t;
-          const igx0 = Math.round((iLon - CUT_WIDTH) / CUT_CELL);
-          const igx1 = Math.round((iLon + CUT_WIDTH) / CUT_CELL);
-          const igy0 = Math.round((iLat - CUT_WIDTH) / CUT_CELL);
-          const igy1 = Math.round((iLat + CUT_WIDTH) / CUT_CELL);
-          for (let gx = igx0; gx <= igx1; gx++) {
-            for (let gy = igy0; gy <= igy1; gy++) {
-              cutCells.add(`${gx},${gy}`);
-            }
-          }
+          cutCells.add(`${Math.round(iLon/COVER_CELL)},${Math.round(iLat/COVER_CELL)}`);
         }
       }
     }
   });
 
-  // Render cut cells as rectangles
+  // Render cut cells — draw wider than the grid cell for visual clarity
+  const VISUAL = COVER_CELL * 0.6; // slightly narrower than cell so gaps show between tracks
   const cutRects = [];
   cutCells.forEach(key => {
     const [gx, gy] = key.split(",").map(Number);
-    const lat = gy * CUT_CELL;
-    const lon = gx * CUT_CELL;
-    const h = CUT_CELL/2;
+    const lat = gy * COVER_CELL;
+    const lon = gx * COVER_CELL;
     cutRects.push(L.rectangle([
-      [lat-h, lon-h], [lat+h, lon+h]
+      [lat - VISUAL, lon - VISUAL],
+      [lat + VISUAL, lon + VISUAL]
     ], {
       color: "none", fillColor: "#5cdb5c",
-      fillOpacity: 0.45, weight: 0
+      fillOpacity: 0.5, weight: 0
     }));
   });
 
   const cutLayer = L.layerGroup(cutRects).addTo(map);
   coverageLayers.push(cutLayer);
 
-  // Coverage percentage
+  // Coverage percentage — cut cells vs garden boundary cells (same grid)
   let pctText = "—", detailText = "";
   if (boundary && gardenCellCount > 0) {
-    // Convert cut cells to coarse grid for comparison
-    const cutCoarse = new Set();
-    cutCells.forEach(key => {
-      const [gx, gy] = key.split(",").map(Number);
-      const cgx = Math.round(gx * CUT_CELL / COVER_CELL);
-      const cgy = Math.round(gy * CUT_CELL / COVER_CELL);
-      cutCoarse.add(`${cgx},${cgy}`);
-    });
-    const coveredInGarden = [...cutCoarse].filter(k => boundary.reachable.has(k)).length;
+    const coveredInGarden = [...cutCells].filter(k => boundary.reachable.has(k)).length;
     const pct = Math.min(100, Math.round(coveredInGarden / gardenCellCount * 100));
     pctText = pct + "%";
     detailText = `(${coveredInGarden} of ${gardenCellCount} areas)`;
