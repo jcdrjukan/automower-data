@@ -198,8 +198,8 @@
   </div>
   <div class="controls">
     <button id="btnTrack" onclick="showTrack()">Latest Track</button>
-    <button id="btnHeat" onclick="showHeatmap()">Heatmap</button>
-    <button id="btnAll" class="active" onclick="showAll()">All Tracks</button>
+    <button id="btnHeat" class="active" onclick="showHeatmap()">Heatmap</button>
+    <button id="btnAll" onclick="showAll()">All Tracks</button>
     <button id="btnCoverage" onclick="showCoverage()">Coverage</button>
     <button id="btnStats" onclick="showStats()">Stats</button>
     <button onclick="refreshData();refreshMowerStatus()">↻ Refresh</button>
@@ -343,8 +343,8 @@
       <div class="menu-label">View</div>
       <div class="menu-row">
         <button class="menu-btn" id="mBtnTrack" onclick="showTrack();closeMenu()">Latest Track</button>
-        <button class="menu-btn" id="mBtnHeat" onclick="showHeatmap();closeMenu()">Heatmap</button>
-        <button class="menu-btn active" id="mBtnAll" onclick="showAll();closeMenu()">All Tracks</button>
+        <button class="menu-btn active" id="mBtnHeat" onclick="showHeatmap();closeMenu()">Heatmap</button>
+        <button class="menu-btn" id="mBtnAll" onclick="showAll();closeMenu()">All Tracks</button>
         <button class="menu-btn" id="mBtnCoverage" onclick="showCoverage();closeMenu()">Coverage</button>
         <button class="menu-btn" id="mBtnStats" onclick="showStats();closeMenu()">Stats</button>
       </div>
@@ -420,7 +420,7 @@ const GARDEN_LAT = 59.8792;
 const GARDEN_LON = 8.5793;
 const TRACK_COLORS = ["#5cdb5c","#4ab84a","#3a963a","#2a742a","#1a521a"];
 
-let map, allData = [], currentMode = "all";
+let map, allData = [], currentMode = "heat";
 let layers = [];
 let osmLayer, satLayer;
 
@@ -1363,7 +1363,7 @@ async function refreshData() {
   }
   updateStats(allData);
   cachedSessionCount = 0; // invalidate gradient cache
-  showAll();
+  showHeatmap();
 }
 
 function saveHeatmapSettings() {
