@@ -780,22 +780,27 @@ function computeBoundary() {
     grid[key] = (grid[key] || 0) + 1;
   });
 
-  // Adaptive confidence threshold — gets stricter as more data arrives
-  const sessionCount = allData.length;
-  const minVisits = Math.max(2, Math.min(Math.floor(sessionCount / 8), 10));
+  // Pass 2: Density percentile filter
+  // Only keep cells in the top 60% of visit density
+  // This naturally separates real garden cells from GPS outliers
+  // Gets more accurate as sessions accumulate
+  const counts = Object.values(grid).sort((a,b) => a-b);
+  const percentileIdx = Math.floor(counts.length * 0.40); // top 60%
+  const densityThreshold = Math.max(2, counts[percentileIdx]);
 
-  // Pass 2: Find core cells (high confidence)
+  // Pass 3: Apply threshold
   const coreCells = new Set();
   Object.entries(grid).forEach(([key, count]) => {
-    if (count >= minVisits) coreCells.add(key);
+    if (count >= densityThreshold) coreCells.add(key);
   });
 
   if (coreCells.size === 0) return null;
 
-  // Pass 3: Flood-fill reachability from densest cell
+  // Pass 4: Flood-fill reachability from densest cell
+  // Ensures only connected cells are included — disconnected GPS outliers excluded
   let maxCount = 0, seedKey = null;
   Object.entries(grid).forEach(([key, count]) => {
-    if (count > maxCount) { maxCount = count; seedKey = key; }
+    if (count > maxCount && coreCells.has(key)) { maxCount = count; seedKey = key; }
   });
 
   const reachable = new Set();
@@ -813,22 +818,41 @@ function computeBoundary() {
     });
   }
 
-  // Pass 4: Build boundary edges from reachable cells
+  // Pass 5: Morphological erosion — remove cells with fewer than 3 reachable neighbours
+  // This strips away thin protrusions caused by GPS noise at the boundary
+  const eroded = new Set();
+  reachable.forEach(key => {
+    const [gx, gy] = key.split(",").map(Number);
+    const neighbours = [[0,1],[0,-1],[1,0],[-1,0]].filter(([dx,dy]) =>
+      reachable.has(`${gx+dx},${gy+dy}`)
+    ).length;
+    if (neighbours >= 2) eroded.add(key); // keep only well-connected cells
+  });
+
+  if (eroded.size === 0) return null;
+
+  // Pass 6: Build boundary edges and smooth
   const edges = traceBoundaryEdges(
-    Object.fromEntries([...reachable].map(k => [k, grid[k] || 0])),
-    minVisits
+    Object.fromEntries([...eroded].map(k => [k, grid[k] || 0])),
+    densityThreshold
   );
   const chains = chainEdges(edges);
   if (!chains.length) return null;
 
-  // Pass 5: Find largest chain (outer boundary)
   const longest = chains.reduce((a,b) => a.length > b.length ? a : b);
   const smoothed = chaikinSmooth(longest, 3);
 
-  // Confidence score
+  // Confidence — improves with session count and density threshold
+  const sessionCount = allData.length;
   const confidence = Math.min(100, Math.round(sessionCount / 0.5));
 
-  return { chain: smoothed, reachable, minVisits, confidence, sessionCount };
+  return {
+    chain: smoothed,
+    reachable: eroded, // use eroded set for coverage % calculation
+    densityThreshold,
+    confidence,
+    sessionCount
+  };
 }
 
 // ── CUT COVERAGE RENDERING ────────────────────────────────────────────────
@@ -922,7 +946,7 @@ function renderCoverage() {
     }).addTo(map);
     coverageLayers.push(boundaryPolygon);
     document.getElementById("boundaryConfidence").textContent =
-      `Boundary confidence: ${boundary.confidence}% · Min visits: ${boundary.minVisits} · Sessions: ${boundary.sessionCount}`;
+      `Boundary confidence: ${boundary.confidence}% · Density threshold: ${boundary.densityThreshold} visits · Sessions: ${boundary.sessionCount}`;
   }
 
   // Fit map to cut area
