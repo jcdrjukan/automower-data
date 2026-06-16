@@ -224,7 +224,7 @@
     <canvas id="chartActivity"></canvas>
   </div>
   <div class="chart-card">
-    <div class="chart-title">Average Session Length Over Time</div>
+    <div class="chart-title">Sessions Per Day (3-Day Rolling Average)</div>
     <canvas id="chartSessionLength"></canvas>
   </div>
   <div class="chart-card">
@@ -1154,16 +1154,18 @@ function buildCharts() {
       plugins: { legend: { labels: { color: "#7ec87e", font: { size: 10 } }, position: "bottom" } } }
   });
 
-  // --- Chart 5: Average session length (points) per day ---
-  const avgLength = dates.map(d => {
-    const sessions = byDate[d];
-    return Math.round(sessions.reduce((sum, s) => sum + s.positions.length, 0) / sessions.length);
+  // --- Chart 5: Rolling 3-day average sessions per day ---
+  const rolling = dates.map((d, i) => {
+    const start = Math.max(0, i - 2);
+    const slice = dates.slice(start, i + 1);
+    const total = slice.reduce((sum, dd) => sum + byDate[dd].length, 0);
+    return Math.round((total / slice.length) * 10) / 10;
   });
   charts.sessionLength = new Chart(document.getElementById("chartSessionLength"), {
     type: "line",
     data: {
       labels: dates.map(d => fmtDate(d)),
-      datasets: [{ label: "Avg Points/Session", data: avgLength,
+      datasets: [{ label: "Avg sessions/day (3-day rolling)", data: rolling,
         borderColor: "#a0c87e", backgroundColor: "rgba(160,200,126,0.1)",
         borderWidth: 2, pointRadius: 2, fill: true, tension: 0.3 }]
     },
