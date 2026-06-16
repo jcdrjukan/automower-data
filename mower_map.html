@@ -19,6 +19,29 @@
   #statsPanel.visible { display: grid; }
   #map { flex: 1; background: #0a140a; }
   #map.hidden { display: none; }
+
+  /* Coverage panel */
+  .coverage-controls {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    z-index: 1000; display: none;
+    background: rgba(15,26,15,0.95); border: 1px solid #1e3a1e;
+    border-radius: 8px; padding: 8px 12px;
+    flex-direction: column; align-items: center; gap: 8px;
+    backdrop-filter: blur(4px);
+  }
+  .coverage-controls.visible { display: flex; }
+  .coverage-period-row { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+  .period-btn {
+    padding: 5px 11px; border-radius: 4px; border: 1px solid #2a4a2a;
+    background: #162416; color: #7ec87e; font-size: 11px; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .period-btn:hover { background: #1e3a1e; border-color: #4a8a4a; }
+  .period-btn.active { background: #1e4a1e; border-color: #7ec87e; color: #b0e8b0; }
+  .coverage-stat {
+    font-size: 12px; color: #4a7a4a; text-align: center;
+  }
+  .coverage-stat strong { color: #7ec87e; font-size: 15px; }
   .chart-card {
     background: #0f1a0f; border: 1px solid #1e3a1e;
     border-radius: 8px; padding: 14px;
@@ -171,6 +194,7 @@
     <button id="btnTrack" onclick="showTrack()">Latest Track</button>
     <button id="btnHeat" onclick="showHeatmap()">Heatmap</button>
     <button id="btnAll" class="active" onclick="showAll()">All Tracks</button>
+    <button id="btnCoverage" onclick="showCoverage()">Coverage</button>
     <button id="btnStats" onclick="showStats()">Stats</button>
     <button onclick="refreshData();refreshMowerStatus()">↻ Refresh</button>
     <div class="divider"></div>
@@ -211,6 +235,22 @@
 
 <div id="map" style="position:relative;flex:1;background:#0a140a">
   <button class="fab" id="fabBtn" onclick="toggleMenu()">☰</button>
+
+  <!-- Coverage controls -->
+  <div class="coverage-controls" id="coverageControls">
+    <div class="coverage-period-row">
+      <button class="period-btn active" id="pBtnSession" onclick="setCoveragePeriod('session')">Last Session</button>
+      <button class="period-btn" id="pBtnToday" onclick="setCoveragePeriod('today')">Today</button>
+      <button class="period-btn" id="pBtnYesterday" onclick="setCoveragePeriod('yesterday')">Yesterday</button>
+      <button class="period-btn" id="pBtn3days" onclick="setCoveragePeriod('3days')">3 Days</button>
+      <button class="period-btn" id="pBtn7days" onclick="setCoveragePeriod('7days')">7 Days</button>
+    </div>
+    <div class="coverage-stat">
+      Coverage: <strong id="coveragePct">—</strong>
+      <span id="coverageDetail" style="font-size:10px;margin-left:6px">—</span>
+    </div>
+    <div class="coverage-stat" id="boundaryConfidence" style="font-size:10px">Boundary confidence: —</div>
+  </div>
   <div class="mobile-status" id="mobileStatus">
     <div class="mobile-status-row">
       <div>☘️ <strong style="color:#7ec87e">Automower Rjukan</strong></div>
@@ -292,6 +332,7 @@
         <button class="menu-btn" id="mBtnTrack" onclick="showTrack();closeMenu()">Latest Track</button>
         <button class="menu-btn" id="mBtnHeat" onclick="showHeatmap();closeMenu()">Heatmap</button>
         <button class="menu-btn active" id="mBtnAll" onclick="showAll();closeMenu()">All Tracks</button>
+        <button class="menu-btn" id="mBtnCoverage" onclick="showCoverage();closeMenu()">Coverage</button>
         <button class="menu-btn" id="mBtnStats" onclick="showStats();closeMenu()">Stats</button>
       </div>
     </div>
@@ -548,7 +589,7 @@ let heatLayer = null;
 
 function showTrack() {
   clearLayers(); currentMode = "track";
-  hideStats();
+  hideStats(); hideCoverage();
   setActiveBtn("btnTrack","mBtnTrack");
   document.getElementById("heatmapControls").classList.remove("visible");
   document.getElementById("mHeatmapSection").style.display = "none";
@@ -566,7 +607,7 @@ function showTrack() {
 
 function showHeatmap() {
   clearLayers(); currentMode = "heat";
-  hideStats();
+  hideStats(); hideCoverage();
   setActiveBtn("btnHeat","mBtnHeat");
   document.getElementById("heatmapControls").classList.add("visible");
   document.getElementById("mHeatmapSection").style.display = "block";
@@ -653,6 +694,7 @@ function showStats() {
   setActiveBtn("btnStats", "mBtnStats");
   document.getElementById("heatmapControls").classList.remove("visible");
   document.getElementById("mHeatmapSection").style.display = "none";
+  hideCoverage();
   document.getElementById("map").classList.add("hidden");
   document.getElementById("statsPanel").classList.add("visible");
   buildCharts();
@@ -662,6 +704,247 @@ function hideStats() {
   document.getElementById("map").classList.remove("hidden");
   document.getElementById("statsPanel").classList.remove("visible");
   destroyCharts();
+}
+
+// ── COVERAGE VIEW ──────────────────────────────────────────────────────────
+
+const COVER_CELL = 0.000018; // ~2m cells for boundary
+const CUT_CELL   = 0.000002; // ~0.2m cells for cut coverage (matches 22cm cutting width)
+const CUT_WIDTH  = 0.000022; // 22cm in degrees (~11cm each side)
+
+let coveragePeriod = "session";
+let coverageLayers = [];
+let boundaryPolygon = null;
+let gardenCells = null; // cached boundary cell set
+
+function hideCoverage() {
+  document.getElementById("coverageControls").classList.remove("visible");
+  coverageLayers.forEach(l => map.removeLayer(l));
+  coverageLayers = [];
+  if (boundaryPolygon) { map.removeLayer(boundaryPolygon); boundaryPolygon = null; }
+}
+
+function showCoverage() {
+  clearLayers(); currentMode = "coverage";
+  hideStats();
+  setActiveBtn("btnCoverage","mBtnCoverage");
+  document.getElementById("heatmapControls").classList.remove("visible");
+  document.getElementById("mHeatmapSection").style.display = "none";
+  document.getElementById("coverageControls").classList.add("visible");
+  renderCoverage();
+}
+
+function setCoveragePeriod(period) {
+  coveragePeriod = period;
+  ["pBtnSession","pBtnToday","pBtnYesterday","pBtn3days","pBtn7days"].forEach(id => {
+    document.getElementById(id).classList.remove("active");
+  });
+  const map = { session:"pBtnSession", today:"pBtnToday", yesterday:"pBtnYesterday",
+                "3days":"pBtn3days", "7days":"pBtn7days" };
+  document.getElementById(map[period]).classList.add("active");
+  renderCoverage();
+}
+
+function getSessionsForPeriod(period) {
+  if (!allData.length) return [];
+  const now = new Date();
+  const norNow = new Date(now.getTime() + 2*3600000);
+  const todayStr = norNow.toISOString().slice(0,10);
+  const yesterStr = new Date(norNow - 86400000).toISOString().slice(0,10);
+
+  if (period === "session") {
+    return [allData[allData.length - 1]];
+  } else if (period === "today") {
+    return allData.filter(s => s.timestamp.slice(0,10) === todayStr);
+  } else if (period === "yesterday") {
+    return allData.filter(s => s.timestamp.slice(0,10) === yesterStr);
+  } else if (period === "3days") {
+    const cutoff = new Date(norNow - 3*86400000).toISOString().slice(0,10);
+    return allData.filter(s => s.timestamp.slice(0,10) >= cutoff);
+  } else if (period === "7days") {
+    const cutoff = new Date(norNow - 7*86400000).toISOString().slice(0,10);
+    return allData.filter(s => s.timestamp.slice(0,10) >= cutoff);
+  }
+  return [];
+}
+
+// ── INTELLIGENT BOUNDARY ALGORITHM ────────────────────────────────────────
+
+function computeBoundary() {
+  const allPositions = allData.flatMap(s => s.positions);
+  if (allPositions.length < 10) return null;
+
+  // Pass 1: Density grid
+  const grid = {};
+  allPositions.forEach(p => {
+    const key = `${Math.round(p.longitude/COVER_CELL)},${Math.round(p.latitude/COVER_CELL)}`;
+    grid[key] = (grid[key] || 0) + 1;
+  });
+
+  // Adaptive confidence threshold — gets stricter as more data arrives
+  const sessionCount = allData.length;
+  const minVisits = Math.max(2, Math.min(Math.floor(sessionCount / 8), 10));
+
+  // Pass 2: Find core cells (high confidence)
+  const coreCells = new Set();
+  Object.entries(grid).forEach(([key, count]) => {
+    if (count >= minVisits) coreCells.add(key);
+  });
+
+  if (coreCells.size === 0) return null;
+
+  // Pass 3: Flood-fill reachability from densest cell
+  let maxCount = 0, seedKey = null;
+  Object.entries(grid).forEach(([key, count]) => {
+    if (count > maxCount) { maxCount = count; seedKey = key; }
+  });
+
+  const reachable = new Set();
+  const queue = [seedKey];
+  reachable.add(seedKey);
+  while (queue.length > 0) {
+    const key = queue.shift();
+    const [gx, gy] = key.split(",").map(Number);
+    [[0,1],[0,-1],[1,0],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([dx,dy]) => {
+      const nk = `${gx+dx},${gy+dy}`;
+      if (!reachable.has(nk) && coreCells.has(nk)) {
+        reachable.add(nk);
+        queue.push(nk);
+      }
+    });
+  }
+
+  // Pass 4: Build boundary edges from reachable cells
+  const edges = traceBoundaryEdges(
+    Object.fromEntries([...reachable].map(k => [k, grid[k] || 0])),
+    minVisits
+  );
+  const chains = chainEdges(edges);
+  if (!chains.length) return null;
+
+  // Pass 5: Find largest chain (outer boundary)
+  const longest = chains.reduce((a,b) => a.length > b.length ? a : b);
+  const smoothed = chaikinSmooth(longest, 3);
+
+  // Confidence score
+  const confidence = Math.min(100, Math.round(sessionCount / 0.5));
+
+  return { chain: smoothed, reachable, minVisits, confidence, sessionCount };
+}
+
+// ── CUT COVERAGE RENDERING ────────────────────────────────────────────────
+
+function renderCoverage() {
+  coverageLayers.forEach(l => map.removeLayer(l));
+  coverageLayers = [];
+  if (boundaryPolygon) { map.removeLayer(boundaryPolygon); boundaryPolygon = null; }
+
+  const sessions = getSessionsForPeriod(coveragePeriod);
+  if (sessions.length === 0) {
+    document.getElementById("coveragePct").textContent = "No data";
+    document.getElementById("coverageDetail").textContent = "";
+    return;
+  }
+
+  // Compute boundary
+  const boundary = computeBoundary();
+
+  // Build garden cell set from boundary reachable cells
+  const gardenCellCount = boundary ? boundary.reachable.size : 0;
+
+  // Build cut coverage using fine grid (~20cm cells)
+  const cutCells = new Set();
+  sessions.forEach(session => {
+    const positions = session.positions;
+    for (let i = 0; i < positions.length; i++) {
+      const p = positions[i];
+      // Mark cells within cutting width of this point
+      const gx0 = Math.round((p.longitude - CUT_WIDTH) / CUT_CELL);
+      const gx1 = Math.round((p.longitude + CUT_WIDTH) / CUT_CELL);
+      const gy0 = Math.round((p.latitude - CUT_WIDTH) / CUT_CELL);
+      const gy1 = Math.round((p.latitude + CUT_WIDTH) / CUT_CELL);
+      for (let gx = gx0; gx <= gx1; gx++) {
+        for (let gy = gy0; gy <= gy1; gy++) {
+          cutCells.add(`${gx},${gy}`);
+        }
+      }
+      // Also interpolate between consecutive points
+      if (i < positions.length - 1) {
+        const p2 = positions[i+1];
+        const steps = Math.ceil(Math.sqrt(
+          Math.pow((p2.longitude-p.longitude)/CUT_CELL, 2) +
+          Math.pow((p2.latitude-p.latitude)/CUT_CELL, 2)
+        ));
+        for (let s = 1; s < steps; s++) {
+          const t = s/steps;
+          const iLon = p.longitude + (p2.longitude-p.longitude)*t;
+          const iLat = p.latitude + (p2.latitude-p.latitude)*t;
+          const igx0 = Math.round((iLon - CUT_WIDTH) / CUT_CELL);
+          const igx1 = Math.round((iLon + CUT_WIDTH) / CUT_CELL);
+          const igy0 = Math.round((iLat - CUT_WIDTH) / CUT_CELL);
+          const igy1 = Math.round((iLat + CUT_WIDTH) / CUT_CELL);
+          for (let gx = igx0; gx <= igx1; gx++) {
+            for (let gy = igy0; gy <= igy1; gy++) {
+              cutCells.add(`${gx},${gy}`);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  // Render cut cells as rectangles
+  const cutRects = [];
+  cutCells.forEach(key => {
+    const [gx, gy] = key.split(",").map(Number);
+    const lat = gy * CUT_CELL;
+    const lon = gx * CUT_CELL;
+    const h = CUT_CELL/2;
+    cutRects.push(L.rectangle([
+      [lat-h, lon-h], [lat+h, lon+h]
+    ], {
+      color: "none", fillColor: "#5cdb5c",
+      fillOpacity: 0.45, weight: 0
+    }));
+  });
+
+  const cutLayer = L.layerGroup(cutRects).addTo(map);
+  coverageLayers.push(cutLayer);
+
+  // Coverage percentage
+  let pctText = "—", detailText = "";
+  if (boundary && gardenCellCount > 0) {
+    // Convert cut cells to coarse grid for comparison
+    const cutCoarse = new Set();
+    cutCells.forEach(key => {
+      const [gx, gy] = key.split(",").map(Number);
+      const cgx = Math.round(gx * CUT_CELL / COVER_CELL);
+      const cgy = Math.round(gy * CUT_CELL / COVER_CELL);
+      cutCoarse.add(`${cgx},${cgy}`);
+    });
+    const coveredInGarden = [...cutCoarse].filter(k => boundary.reachable.has(k)).length;
+    const pct = Math.min(100, Math.round(coveredInGarden / gardenCellCount * 100));
+    pctText = pct + "%";
+    detailText = `(${coveredInGarden} of ${gardenCellCount} areas)`;
+  }
+  document.getElementById("coveragePct").textContent = pctText;
+  document.getElementById("coverageDetail").textContent = detailText;
+
+  // Draw boundary
+  if (boundary) {
+    boundaryPolygon = L.polyline(boundary.chain, {
+      color: "#ffaa00", weight: 2, opacity: 0.8, dashArray: "5,5"
+    }).addTo(map);
+    coverageLayers.push(boundaryPolygon);
+    document.getElementById("boundaryConfidence").textContent =
+      `Boundary confidence: ${boundary.confidence}% · Min visits: ${boundary.minVisits} · Sessions: ${boundary.sessionCount}`;
+  }
+
+  // Fit map to cut area
+  if (cutRects.length > 0) {
+    const bounds = cutLayer.getLayers().reduce((b, r) => b.extend(r.getBounds()), L.latLngBounds([]));
+    if (bounds.isValid()) map.fitBounds(bounds, { padding: [40,40] });
+  }
 }
 
 let charts = {};
@@ -796,7 +1079,7 @@ function buildCharts() {
 
 function showAll() {
   clearLayers(); currentMode = "all";
-  hideStats();
+  hideStats(); hideCoverage();
   setActiveBtn("btnAll","mBtnAll");
   document.getElementById("heatmapControls").classList.remove("visible");
   document.getElementById("mHeatmapSection").style.display = "none";
@@ -824,8 +1107,8 @@ function setMapType(type) {
 }
 
 function setActiveBtn(deskId, mobId) {
-  ["btnTrack","btnHeat","btnAll","btnStats"].forEach(b => { const el=document.getElementById(b); if(el) el.classList.toggle("active", b===deskId); });
-  ["mBtnTrack","mBtnHeat","mBtnAll","mBtnStats"].forEach(b => { const el=document.getElementById(b); if(el) el.classList.toggle("active", b===mobId); });
+  ["btnTrack","btnHeat","btnAll","btnCoverage","btnStats"].forEach(b => { const el=document.getElementById(b); if(el) el.classList.toggle("active", b===deskId); });
+  ["mBtnTrack","mBtnHeat","mBtnAll","mBtnCoverage","mBtnStats"].forEach(b => { const el=document.getElementById(b); if(el) el.classList.toggle("active", b===mobId); });
 }
 
 function toggleMenu() {
