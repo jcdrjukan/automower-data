@@ -1207,22 +1207,82 @@ function buildCharts() {
     }
   });
 
-  // --- Chart 5: Battery % over time — sawtooth pattern shows health ---
-  // Rising = charging, falling = mowing. Steeper falls over time = degradation.
-  const batteryData = allData
+  // --- Chart 5: Battery % over time with period selector ---
+  // Store battery data globally so period buttons can redraw
+  window._batteryAllData = allData
     .filter(s => s.battery != null)
-    .sort((a,b) => a.timestamp.localeCompare(b.timestamp))
-    .map(s => ({
+    .sort((a,b) => a.timestamp.localeCompare(b.timestamp));
+
+  function getBatteryDataForPeriod(period) {
+    const all = window._batteryAllData;
+    if (!all.length) return [];
+    const now = new Date();
+    const norNow = new Date(now.getTime() + 2*3600000);
+    const todayStr = norNow.toISOString().slice(0,10);
+    const yesterStr = new Date(norNow - 86400000).toISOString().slice(0,10);
+
+    let filtered;
+    if (period === "today") {
+      filtered = all.filter(s => s.timestamp.slice(0,10) === todayStr);
+    } else if (period === "yesterday") {
+      filtered = all.filter(s => s.timestamp.slice(0,10) === yesterStr);
+    } else if (period === "3days") {
+      const cutoff = new Date(norNow - 3*86400000).toISOString();
+      filtered = all.filter(s => s.timestamp >= cutoff);
+    } else if (period === "7days") {
+      const cutoff = new Date(norNow - 7*86400000).toISOString();
+      filtered = all.filter(s => s.timestamp >= cutoff);
+    } else {
+      filtered = all; // all time
+    }
+    return filtered.map(s => ({
       x: s.timestamp.slice(5,16).replace("T"," "),
       y: s.battery
     }));
+  }
+
+  const batteryPeriodBtns = `
+    <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap;">
+      <button onclick="setBatteryPeriod('today')" id="bpToday" style="padding:3px 8px;border-radius:3px;border:1px solid #2a4a2a;background:#162416;color:#7ec87e;font-size:10px;cursor:pointer">Today</button>
+      <button onclick="setBatteryPeriod('yesterday')" id="bpYesterday" style="padding:3px 8px;border-radius:3px;border:1px solid #2a4a2a;background:#162416;color:#7ec87e;font-size:10px;cursor:pointer">Yesterday</button>
+      <button onclick="setBatteryPeriod('3days')" id="bpThree" style="padding:3px 8px;border-radius:3px;border:1px solid #2a4a2a;background:#162416;color:#7ec87e;font-size:10px;cursor:pointer">3 Days</button>
+      <button onclick="setBatteryPeriod('7days')" id="bpSeven" style="padding:3px 8px;border-radius:3px;border:1px solid #2a4a2a;background:#162416;color:#7ec87e;font-size:10px;cursor:pointer">7 Days</button>
+      <button onclick="setBatteryPeriod('all')" id="bpAll" style="padding:3px 8px;border-radius:3px;border:1px solid #7ec87e;background:#1e4a1e;color:#b0e8b0;font-size:10px;cursor:pointer">All</button>
+    </div>`;
+
+  // Inject period buttons above the canvas
+  const batteryCard = document.getElementById("chartSessionLength").parentElement;
+  const btnDiv = document.createElement("div");
+  btnDiv.innerHTML = batteryPeriodBtns;
+  batteryCard.insertBefore(btnDiv.firstElementChild, batteryCard.querySelector("canvas"));
+
+  window._batteryPeriod = "all";
+  window.setBatteryPeriod = function(period) {
+    window._batteryPeriod = period;
+    // Update button styles
+    ["bpToday","bpYesterday","bpThree","bpSeven","bpAll"].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.style.borderColor = "#2a4a2a";
+      el.style.background = "#162416";
+      el.style.color = "#7ec87e";
+    });
+    const activeMap = { today:"bpToday", yesterday:"bpYesterday", "3days":"bpThree", "7days":"bpSeven", all:"bpAll" };
+    const activeEl = document.getElementById(activeMap[period]);
+    if (activeEl) { activeEl.style.borderColor = "#7ec87e"; activeEl.style.background = "#1e4a1e"; activeEl.style.color = "#b0e8b0"; }
+    // Update chart data
+    if (charts.sessionLength) {
+      charts.sessionLength.data.datasets[0].data = getBatteryDataForPeriod(period);
+      charts.sessionLength.update();
+    }
+  };
 
   charts.sessionLength = new Chart(document.getElementById("chartSessionLength"), {
     type: "line",
     data: {
       datasets: [{
         label: "Battery %",
-        data: batteryData,
+        data: getBatteryDataForPeriod("all"),
         borderColor: "#5cdb5c",
         backgroundColor: "rgba(92,219,92,0.05)",
         borderWidth: 1.5,
@@ -1240,10 +1300,7 @@ function buildCharts() {
       scales: {
         x: {
           type: "category",
-          ticks: {
-            color: "#4a7a4a", font: { size: 9 }, maxTicksLimit: 8,
-            maxRotation: 0
-          },
+          ticks: { color: "#4a7a4a", font: { size: 9 }, maxTicksLimit: 8, maxRotation: 0 },
           grid: { color: "#1e3a1e" }
         },
         y: {
