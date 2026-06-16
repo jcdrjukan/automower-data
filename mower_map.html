@@ -446,7 +446,7 @@ function clearLayers() {
 }
 
 // Cell size in degrees (~2m at this latitude)
-const CELL_SIZE = 0.000018;
+const CELL_SIZE = 0.000009; // ~1m cells for heatmap (matches coverage grid)
 
 function buildDensityGrid(positions) {
   const grid = {};
