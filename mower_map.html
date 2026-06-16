@@ -226,7 +226,7 @@
     <canvas id="chartCumulative"></canvas>
   </div>
   <div class="chart-card">
-    <div class="chart-title">Activity Breakdown</div>
+    <div class="chart-title">Rain Parker — Mowing Sessions vs Rain Interventions</div>
     <canvas id="chartActivity"></canvas>
   </div>
   <div class="chart-card">
@@ -1143,21 +1143,68 @@ function buildCharts() {
     options: { ...CHART_DEFAULTS, plugins: { legend: { display: false } } }
   });
 
-  // --- Chart 4: Activity breakdown ---
-  const activityCount = {};
-  allData.forEach(s => { activityCount[s.activity] = (activityCount[s.activity] || 0) + 1; });
-  const activityLabels = { MOWING:"Mowing", GOING_HOME:"Going Home", LEAVING:"Leaving",
-                           CHARGING:"Charging", PARKED_IN_CS:"Parked" };
-  const actColors = ["#5cdb5c","#4ab8a0","#a0c87e","#2d6b2d","#1e4a1e"];
+  // --- Chart 4: Rain Parker interventions ---
+  // Shows mowing days vs rain-parked days and intervention count over time
+  // Use mower_state.json isn't available here, so infer from session gaps and rain emails
+  // Best proxy: days with NO mowing sessions = likely rain day
+  // Days with mowing sessions = active day
+  // We can also look at activity gaps > 2hrs during mowing hours = possible rain park
+
+  const activeDays = {};
+  const rainDays = {};
+
+  // Mark each date as having mowing activity or not
+  allData.forEach(s => {
+    const date = s.timestamp.slice(0,10);
+    if (["MOWING","LEAVING"].includes(s.activity)) {
+      activeDays[date] = (activeDays[date] || 0) + 1;
+    }
+  });
+
+  // Find days within our date range with zero mowing sessions = rain or issue
+  dates.forEach(d => {
+    if (!activeDays[d]) rainDays[d] = true;
+  });
+
+  // Also detect mid-day gaps > 90 min during mowing hours = possible rain park
+  const sortedAll = allData.slice().sort((a,b) => a.timestamp.localeCompare(b.timestamp));
+  const interventions = {}; // date -> count of likely rain interventions
+  for (let i = 0; i < sortedAll.length - 1; i++) {
+    const curr = sortedAll[i];
+    const next = sortedAll[i+1];
+    const currHour = new Date(curr.timestamp).getUTCHours() + 2;
+    const gap = (new Date(next.timestamp) - new Date(curr.timestamp)) / 60000;
+    const date = curr.timestamp.slice(0,10);
+    // Gap > 90 min during mowing hours = likely rain park
+    if (gap > 90 && gap < 480 && currHour >= 9 && currHour <= 20) {
+      interventions[date] = (interventions[date] || 0) + 1;
+    }
+  }
+
+  const mowingCounts = dates.map(d => activeDays[d] || 0);
+  const interventionCounts = dates.map(d => interventions[d] || 0);
+
   charts.activity = new Chart(document.getElementById("chartActivity"), {
-    type: "doughnut",
+    type: "bar",
     data: {
-      labels: Object.keys(activityCount).map(k => activityLabels[k] || k),
-      datasets: [{ data: Object.values(activityCount),
-        backgroundColor: actColors, borderColor: "#0f1a0f", borderWidth: 2 }]
+      labels: dates.map(d => fmtDate(d)),
+      datasets: [
+        { label: "Mowing sessions", data: mowingCounts,
+          backgroundColor: "#2d6b2d", borderColor: "#5cdb5c", borderWidth: 1,
+          stack: "a" },
+        { label: "Possible rain gaps", data: interventionCounts,
+          backgroundColor: "#cc4400", borderColor: "#ff6622", borderWidth: 1,
+          stack: "b" }
+      ]
     },
-    options: { responsive: true, maintainAspectRatio: true,
-      plugins: { legend: { labels: { color: "#7ec87e", font: { size: 10 } }, position: "bottom" } } }
+    options: {
+      ...CHART_DEFAULTS,
+      plugins: { legend: { labels: { color: "#7ec87e", font: { size: 10 } } } },
+      scales: {
+        x: { ticks: { color: "#4a7a4a", font: { size: 10 } }, grid: { color: "#1e3a1e" } },
+        y: { ticks: { color: "#4a7a4a", font: { size: 10 } }, grid: { color: "#1e3a1e" }, min: 0 }
+      }
+    }
   });
 
   // --- Chart 5: Battery % over time — sawtooth pattern shows health ---
