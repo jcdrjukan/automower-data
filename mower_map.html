@@ -224,7 +224,7 @@
     <canvas id="chartActivity"></canvas>
   </div>
   <div class="chart-card">
-    <div class="chart-title">Sessions Per Day (3-Day Rolling Average)</div>
+    <div class="chart-title">Battery Health — Avg Mowing vs Charging Time (min)</div>
     <canvas id="chartSessionLength"></canvas>
   </div>
   <div class="chart-card">
@@ -1154,22 +1154,59 @@ function buildCharts() {
       plugins: { legend: { labels: { color: "#7ec87e", font: { size: 10 } }, position: "bottom" } } }
   });
 
-  // --- Chart 5: Rolling 3-day average sessions per day ---
-  const rolling = dates.map((d, i) => {
-    const start = Math.max(0, i - 2);
-    const slice = dates.slice(start, i + 1);
-    const total = slice.reduce((sum, dd) => sum + byDate[dd].length, 0);
-    return Math.round((total / slice.length) * 10) / 10;
+  // --- Chart 5: Average mowing & charging duration per day ---
+  // Use timestamp gaps between consecutive sessions to estimate durations
+  const sorted = allData.slice().sort((a,b) => a.timestamp.localeCompare(b.timestamp));
+  const mowingDurations = {}; // date -> [minutes]
+  const chargingDurations = {}; // date -> [minutes]
+
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const curr = sorted[i];
+    const next = sorted[i+1];
+    const gap = (new Date(next.timestamp) - new Date(curr.timestamp)) / 60000; // minutes
+    if (gap > 120) continue; // skip gaps > 2hrs (overnight, paused etc)
+    const date = curr.timestamp.slice(0,10);
+    const isMowing = ["MOWING","LEAVING","GOING_HOME"].includes(curr.activity);
+    const isCharging = ["CHARGING","PARKED_IN_CS"].includes(curr.activity);
+    if (isMowing) {
+      if (!mowingDurations[date]) mowingDurations[date] = [];
+      mowingDurations[date].push(gap);
+    } else if (isCharging) {
+      if (!chargingDurations[date]) chargingDurations[date] = [];
+      chargingDurations[date].push(gap);
+    }
+  }
+
+  const avgMowing = dates.map(d => {
+    const vals = mowingDurations[d];
+    if (!vals || !vals.length) return null;
+    return Math.round(vals.reduce((a,b) => a+b, 0) / vals.length);
   });
+  const avgCharging = dates.map(d => {
+    const vals = chargingDurations[d];
+    if (!vals || !vals.length) return null;
+    return Math.round(vals.reduce((a,b) => a+b, 0) / vals.length);
+  });
+
   charts.sessionLength = new Chart(document.getElementById("chartSessionLength"), {
     type: "line",
     data: {
       labels: dates.map(d => fmtDate(d)),
-      datasets: [{ label: "Avg sessions/day (3-day rolling)", data: rolling,
-        borderColor: "#a0c87e", backgroundColor: "rgba(160,200,126,0.1)",
-        borderWidth: 2, pointRadius: 2, fill: true, tension: 0.3 }]
+      datasets: [
+        { label: "Avg mowing (min)", data: avgMowing,
+          borderColor: "#5cdb5c", backgroundColor: "rgba(92,219,92,0.1)",
+          borderWidth: 2, pointRadius: 2, fill: false, tension: 0.3,
+          spanGaps: true },
+        { label: "Avg charging (min)", data: avgCharging,
+          borderColor: "#ffaa00", backgroundColor: "rgba(255,170,0,0.1)",
+          borderWidth: 2, pointRadius: 2, fill: false, tension: 0.3,
+          spanGaps: true }
+      ]
     },
-    options: { ...CHART_DEFAULTS }
+    options: {
+      ...CHART_DEFAULTS,
+      plugins: { legend: { labels: { color: "#7ec87e", font: { size: 10 } } } }
+    }
   });
 
   // --- Chart 6: Time of day distribution ---
