@@ -1461,11 +1461,14 @@ async function refreshMowerStatus() {
     if (res.ok) {
       const s=await res.json();
       const label=ACTIVITY_LABELS[s.activity]||s.activity;
-      document.getElementById("mowerActivity").textContent=label;
+      // Append the friendly reason when the mower isn't actively mowing.
+      const showReason = s.reason && !["mowing"].includes(s.reason);
+      const labelWithReason = showReason ? label + " — " + s.reason : label;
+      document.getElementById("mowerActivity").textContent=labelWithReason;
       document.getElementById("mowerBattery").textContent=s.battery+"%";
-      const el=document.getElementById("mMowerActivity"); if(el) el.textContent=label;
+      const el=document.getElementById("mMowerActivity"); if(el) el.textContent=labelWithReason;
       const el2=document.getElementById("mMowerBattery"); if(el2) el2.textContent=s.battery+"%";
-      const el3=document.getElementById("mMenuActivity"); if(el3) el3.textContent=label;
+      const el3=document.getElementById("mMenuActivity"); if(el3) el3.textContent=labelWithReason;
       const el4=document.getElementById("mMenuBattery"); if(el4) el4.textContent=s.battery+"%";
       const updated=new Date(s.updated);
       document.getElementById("mowerUpdated").textContent=updated.toLocaleString("no-NO",{hour:"2-digit",minute:"2-digit"});
