@@ -1473,30 +1473,51 @@ async function refreshMowerStatus() {
       const updated=new Date(s.updated);
       document.getElementById("mowerUpdated").textContent=updated.toLocaleString("no-NO",{hour:"2-digit",minute:"2-digit"});
 
-      // Staleness check — the status file only advances on a fully successful
-      // script run. If the mower's login is failing, the file freezes at its
-      // last good value. Flag anything older than 30 min so a frozen reading
-      // doesn't masquerade as a live one.
+      // Two kinds of staleness:
+      // (1) Our script hasn't written recently (failed runs) — 'updated' is old.
+      // (2) Our runs succeed but the mower's OWN reading is frozen — Husqvarna is
+      //     serving a cached snapshot. Caught via 'mower_report_time' lagging.
+      const STALE_AFTER = 30;     // minutes — script hasn't written
+      const FROZEN_AFTER = 35;    // minutes — mower itself hasn't reported fresh
       const ageMin = Math.round((Date.now() - updated.getTime()) / 60000);
-      const STALE_AFTER = 30;
+
+      let mowerAgeMin = null;
+      if (s.mower_report_time) {
+        mowerAgeMin = Math.round((Date.now() - new Date(s.mower_report_time).getTime()) / 60000);
+      }
+
       const badge = document.querySelector(".mower-status");
       const mobileBadge = document.getElementById("mobileStatus");
       const updatedEl = document.getElementById("mowerUpdated");
-      if (ageMin >= STALE_AFTER) {
+
+      const fmtAge = (m) => {
+        if (m < 60) return m + " min ago";
+        const h = Math.floor(m/60), mm = m % 60;
+        return h + "h" + (mm ? " " + mm + "m" : "") + " ago";
+      };
+
+      const hhmm = updated.toLocaleString("no-NO",{hour:"2-digit",minute:"2-digit"});
+
+      if (ageMin < STALE_AFTER && mowerAgeMin !== null && mowerAgeMin >= FROZEN_AFTER) {
+        // Frozen upstream: our script wrote recently (ageMin small) but the
+        // mower's own reading is old — Husqvarna is serving a cached snapshot.
         if (badge) badge.style.opacity = "0.5";
         if (mobileBadge) mobileBadge.style.opacity = "0.6";
-        let ageText;
-        if (ageMin < 60) ageText = ageMin + " min ago";
-        else {
-          const h = Math.floor(ageMin/60), m = ageMin % 60;
-          ageText = h + "h" + (m ? " " + m + "m" : "") + " ago";
-        }
-        updatedEl.textContent = updated.toLocaleString("no-NO",{hour:"2-digit",minute:"2-digit"}) + " ⚠ last known, " + ageText;
+        updatedEl.textContent = hhmm + " ⚠ data frozen — Husqvarna not updating (mower last reported " + fmtAge(mowerAgeMin) + ")";
+        updatedEl.style.color = "#e08838";
+        updatedEl.title = "The script is running fine, but Husqvarna's cloud is returning an old cached reading. The values shown may not reflect the mower's real current state. Check the Husqvarna app for the live status.";
+      } else if (ageMin >= STALE_AFTER) {
+        // Script hasn't written recently (e.g. failed logins).
+        if (badge) badge.style.opacity = "0.5";
+        if (mobileBadge) mobileBadge.style.opacity = "0.6";
+        updatedEl.textContent = hhmm + " ⚠ last known, " + fmtAge(ageMin);
         updatedEl.style.color = "#d8a64a";
         updatedEl.title = "Mower data hasn't updated recently — this may not reflect the mower's current state.";
       } else {
+        // Everything fresh.
         if (badge) badge.style.opacity = "1";
         if (mobileBadge) mobileBadge.style.opacity = "1";
+        updatedEl.textContent = hhmm;
         updatedEl.style.color = "#4a7a4a";
         updatedEl.title = "";
       }
