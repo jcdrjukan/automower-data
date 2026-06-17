@@ -416,6 +416,8 @@
 <script>
 const DATA_URL = "https://raw.githubusercontent.com/jcdrjukan/automower-data/main/mower_positions.json";
 const STATUS_URL = "https://raw.githubusercontent.com/jcdrjukan/automower-data/main/mower_status.json";
+const RAIN_EVENTS_URL = "https://raw.githubusercontent.com/jcdrjukan/automower-data/main/rain_events.json";
+let rainEvents = [];
 const GARDEN_LAT = 59.8792;
 const GARDEN_LON = 8.5793;
 const TRACK_COLORS = ["#5cdb5c","#4ab84a","#3a963a","#2a742a","#1a521a"];
@@ -1157,16 +1159,10 @@ function buildCharts() {
   });
 
   // --- Chart 4: Rain Parker interventions ---
-  // Shows mowing days vs rain-parked days and intervention count over time
-  // Use mower_state.json isn't available here, so infer from session gaps and rain emails
-  // Best proxy: days with NO mowing sessions = likely rain day
-  // Days with mowing sessions = active day
-  // We can also look at activity gaps > 2hrs during mowing hours = possible rain park
+  // Now reads REAL recorded rain-park events from rain_events.json (written by
+  // the script when it parks/resumes for rain), instead of guessing from gaps.
 
   const activeDays = {};
-  const rainDays = {};
-
-  // Mark each date as having mowing activity or not
   allData.forEach(s => {
     const date = s.timestamp.slice(0,10);
     if (["MOWING","LEAVING"].includes(s.activity)) {
@@ -1174,28 +1170,17 @@ function buildCharts() {
     }
   });
 
-  // Find days within our date range with zero mowing sessions = rain or issue
-  dates.forEach(d => {
-    if (!activeDays[d]) rainDays[d] = true;
+  // Count real rain parks per day by their start date. An event still open
+  // (ended === null) counts too, so an ongoing rain park is visible.
+  const rainParkCounts = {};
+  rainEvents.forEach(ev => {
+    if (!ev.started) return;
+    const date = ev.started.slice(0,10);
+    rainParkCounts[date] = (rainParkCounts[date] || 0) + 1;
   });
 
-  // Also detect mid-day gaps > 90 min during mowing hours = possible rain park
-  const sortedAll = allData.slice().sort((a,b) => a.timestamp.localeCompare(b.timestamp));
-  const interventions = {}; // date -> count of likely rain interventions
-  for (let i = 0; i < sortedAll.length - 1; i++) {
-    const curr = sortedAll[i];
-    const next = sortedAll[i+1];
-    const currHour = new Date(curr.timestamp).getUTCHours() + 2;
-    const gap = (new Date(next.timestamp) - new Date(curr.timestamp)) / 60000;
-    const date = curr.timestamp.slice(0,10);
-    // Gap > 90 min during mowing hours = likely rain park
-    if (gap > 90 && gap < 480 && currHour >= 9 && currHour <= 20) {
-      interventions[date] = (interventions[date] || 0) + 1;
-    }
-  }
-
   const mowingCounts = dates.map(d => activeDays[d] || 0);
-  const interventionCounts = dates.map(d => interventions[d] || 0);
+  const interventionCounts = dates.map(d => rainParkCounts[d] || 0);
 
   charts.activity = new Chart(document.getElementById("chartActivity"), {
     type: "bar",
@@ -1205,7 +1190,7 @@ function buildCharts() {
         { label: "Mowing sessions", data: mowingCounts,
           backgroundColor: "#2d6b2d", borderColor: "#5cdb5c", borderWidth: 1,
           stack: "a" },
-        { label: "Possible rain gaps", data: interventionCounts,
+        { label: "Rain parks", data: interventionCounts,
           backgroundColor: "#cc4400", borderColor: "#ff6622", borderWidth: 1,
           stack: "b" }
       ]
@@ -1535,6 +1520,11 @@ async function refreshData() {
   } catch(e) {
     document.getElementById("statusText").textContent="Error: "+e.message;
   }
+  // Load real rain-park events (optional file — absent until the script writes it)
+  try {
+    const rres=await fetch(RAIN_EVENTS_URL+"?t="+Date.now());
+    if (rres.ok) { rainEvents = await rres.json(); }
+  } catch(e) { rainEvents = []; }
   updateStats(allData);
   cachedSessionCount = 0; // invalidate gradient cache
   showHeatmap();
