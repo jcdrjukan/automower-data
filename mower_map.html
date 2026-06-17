@@ -1042,13 +1042,26 @@ function renderCoverage() {
   const cutLayer = L.layerGroup(cutRects).addTo(map);
   coverageLayers.push(cutLayer);
 
-  // Coverage percentage — coarse pct cells vs garden boundary cells
+  // Coverage percentage — credit any patch the mower actually drove over.
+  // A patch counts the first time it is mowed (>=1 pass), not only after
+  // many repeat visits. We compare against the whole garden footprint,
+  // widened slightly so the fringe the mower is currently working still counts.
+  // The boundary lines themselves are unchanged — they keep getting sharper
+  // over the season exactly as before.
   let pctText = "—", detailText = "";
-  if (boundary && gardenCellCount > 0) {
-    const coveredInGarden = [...pctCells].filter(k => boundary.reachable.has(k)).length;
-    const pct = Math.min(100, Math.round(coveredInGarden / gardenCellCount * 100));
+  if (boundary && boundary.reachable.size > 0) {
+    const garden = new Set(boundary.reachable);
+    boundary.reachable.forEach(key => {
+      const [gx, gy] = key.split(",").map(Number);
+      [[0,1],[0,-1],[1,0],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([dx,dy]) => {
+        garden.add(`${gx+dx},${gy+dy}`);
+      });
+    });
+    const gardenSize = garden.size;
+    const coveredInGarden = [...pctCells].filter(k => garden.has(k)).length;
+    const pct = Math.min(100, Math.round(coveredInGarden / gardenSize * 100));
     pctText = pct + "%";
-    detailText = `(${coveredInGarden} of ${gardenCellCount} areas)`;
+    detailText = `(${coveredInGarden} of ${gardenSize} areas)`;
   }
   document.getElementById("coveragePct").textContent = pctText;
   document.getElementById("coverageDetail").textContent = detailText;
