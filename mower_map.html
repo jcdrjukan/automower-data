@@ -723,8 +723,18 @@ function hideStats() {
 
 // ── COVERAGE VIEW ──────────────────────────────────────────────────────────
 
-const COVER_CELL = 0.000009; // ~1m cells for boundary and obstacle detection
-const DISP_CELL  = 0.000005; // ~0.5m cells for visual display
+// Grid cell sizes — split into lat/lon directions so cells are physically
+// square on the ground. At Rjukan's latitude (~59.88°N), one degree of
+// longitude is only about half the ground distance of one degree of
+// latitude, so using a single degree value for both makes cells render
+// noticeably taller than wide when the map is zoomed in.
+const METERS_PER_DEG_LAT = 111000;
+const METERS_PER_DEG_LON = 111000 * Math.cos(GARDEN_LAT * Math.PI / 180);
+
+const COVER_CELL_LAT = 1.0 / METERS_PER_DEG_LAT;  // 1m cells for boundary/obstacle detection
+const COVER_CELL_LON = 1.0 / METERS_PER_DEG_LON;
+const DISP_CELL_LAT  = 0.5 / METERS_PER_DEG_LAT;  // 0.5m cells for visual display
+const DISP_CELL_LON  = 0.5 / METERS_PER_DEG_LON;
 
 let coveragePeriod = "session";
 let coverageLayers = [];
@@ -800,7 +810,7 @@ function computeGradient() {
   // Pass 1: 1m density grid
   const grid = {};
   allPositions.forEach(p => {
-    const key = `${Math.round(p.longitude/COVER_CELL)},${Math.round(p.latitude/COVER_CELL)}`;
+    const key = `${Math.round(p.longitude/COVER_CELL_LON)},${Math.round(p.latitude/COVER_CELL_LAT)}`;
     grid[key] = (grid[key] || 0) + 1;
   });
   cachedGrid = grid;
@@ -899,17 +909,18 @@ function computeBoundary() {
   const allEdges = [];
   edgeCells.forEach(key => {
     const [gx, gy] = key.split(",").map(Number);
-    const h = COVER_CELL / 2;
-    const cx = gx * COVER_CELL;
-    const cy = gy * COVER_CELL;
+    const hLat = COVER_CELL_LAT / 2;
+    const hLon = COVER_CELL_LON / 2;
+    const cx = gx * COVER_CELL_LON;
+    const cy = gy * COVER_CELL_LAT;
     [[0,1],[0,-1],[1,0],[-1,0]].forEach(([dx,dy]) => {
       const nk = `${gx+dx},${gy+dy}`;
       const myG = gradient[key] || 0;
       const nG = gradient[nk] || 0;
       // Draw edge on the side facing lower gradient (the "downhill" side)
       if (myG > nG) {
-        if (dy !== 0) allEdges.push([[cy+dy*h, cx-h],[cy+dy*h, cx+h]]);
-        else allEdges.push([[cy-h, cx+dx*h],[cy+h, cx+dx*h]]);
+        if (dy !== 0) allEdges.push([[cy+dy*hLat, cx-hLon],[cy+dy*hLat, cx+hLon]]);
+        else allEdges.push([[cy-hLat, cx+dx*hLon],[cy+hLat, cx+dx*hLon]]);
       }
     });
   });
@@ -927,7 +938,7 @@ function computeBoundary() {
   smoothed.forEach(chain => {
     const centLat = chain.reduce((s,p) => s+p[0], 0) / chain.length;
     const centLon = chain.reduce((s,p) => s+p[1], 0) / chain.length;
-    const centKey = `${Math.round(centLon/COVER_CELL)},${Math.round(centLat/COVER_CELL)}`;
+    const centKey = `${Math.round(centLon/COVER_CELL_LON)},${Math.round(centLat/COVER_CELL_LAT)}`;
     // Check how many neighbours of centroid are reachable
     const [cgx, cgy] = centKey.split(",").map(Number);
     const reachableNeighbours = [[0,1],[0,-1],[1,0],[-1,0],[1,1],[-1,1],[1,-1],[-1,-1]]
@@ -1014,38 +1025,39 @@ function renderCoverage() {
       const p = positions[i];
 
       // Mark display cell
-      dispCells.add(`${Math.round(p.longitude/DISP_CELL)},${Math.round(p.latitude/DISP_CELL)}`);
+      dispCells.add(`${Math.round(p.longitude/DISP_CELL_LON)},${Math.round(p.latitude/DISP_CELL_LAT)}`);
       // Mark coarse cell for %
-      pctCells.add(`${Math.round(p.longitude/COVER_CELL)},${Math.round(p.latitude/COVER_CELL)}`);
+      pctCells.add(`${Math.round(p.longitude/COVER_CELL_LON)},${Math.round(p.latitude/COVER_CELL_LAT)}`);
 
       // Interpolate between consecutive points
       if (i < positions.length - 1) {
         const p2 = positions[i+1];
         const steps = Math.ceil(Math.sqrt(
-          Math.pow((p2.longitude-p.longitude)/DISP_CELL, 2) +
-          Math.pow((p2.latitude-p.latitude)/DISP_CELL, 2)
+          Math.pow((p2.longitude-p.longitude)/DISP_CELL_LON, 2) +
+          Math.pow((p2.latitude-p.latitude)/DISP_CELL_LAT, 2)
         ) * 1.5);
         for (let s = 1; s < steps; s++) {
           const t = s/steps;
           const iLon = p.longitude + (p2.longitude-p.longitude)*t;
           const iLat = p.latitude + (p2.latitude-p.latitude)*t;
-          dispCells.add(`${Math.round(iLon/DISP_CELL)},${Math.round(iLat/DISP_CELL)}`);
-          pctCells.add(`${Math.round(iLon/COVER_CELL)},${Math.round(iLat/COVER_CELL)}`);
+          dispCells.add(`${Math.round(iLon/DISP_CELL_LON)},${Math.round(iLat/DISP_CELL_LAT)}`);
+          pctCells.add(`${Math.round(iLon/COVER_CELL_LON)},${Math.round(iLat/COVER_CELL_LAT)}`);
         }
       }
     }
   });
 
   // Render fine grid cells — slightly smaller than cell for visible gaps between tracks
-  const VISUAL = DISP_CELL * 0.55;
+  const VISUAL_LAT = DISP_CELL_LAT * 0.55;
+  const VISUAL_LON = DISP_CELL_LON * 0.55;
   const cutRects = [];
   dispCells.forEach(key => {
     const [gx, gy] = key.split(",").map(Number);
-    const lat = gy * DISP_CELL;
-    const lon = gx * DISP_CELL;
+    const lat = gy * DISP_CELL_LAT;
+    const lon = gx * DISP_CELL_LON;
     cutRects.push(L.rectangle([
-      [lat - VISUAL, lon - VISUAL],
-      [lat + VISUAL, lon + VISUAL]
+      [lat - VISUAL_LAT, lon - VISUAL_LON],
+      [lat + VISUAL_LAT, lon + VISUAL_LON]
     ], {
       color: "none", fillColor: "#5cdb5c",
       fillOpacity: 0.55, weight: 0
