@@ -870,13 +870,24 @@ function computeGradient() {
 function computeBoundary() {
   if (!cachedGradient) return null;
 
-  const threshold = parseFloat(document.getElementById("sobelThreshold").value);
+  const sliderValue = parseFloat(document.getElementById("sobelThreshold").value);
   const gradient = cachedGradient;
   const reachable = cachedReachable;
   const grid = cachedGrid;
   const sessionCount = allData.length;
 
-  // Find all edge cells above threshold
+  // Percentile-based threshold: slider value = the top X% of gradients shown
+  // as edges. Self-calibrating as data accumulates — "top 8%" stays meaningful
+  // whether we have 200 sessions or 2000, because the cutoff scales with the
+  // current gradient distribution rather than against a fixed magnitude.
+  const positiveGradients = Object.values(gradient).filter(g => g > 0).sort((a, b) => a - b);
+  let threshold = 0;
+  if (positiveGradients.length > 0) {
+    const cutoffIdx = Math.floor(positiveGradients.length * (1 - sliderValue / 100));
+    threshold = positiveGradients[Math.max(0, Math.min(cutoffIdx, positiveGradients.length - 1))];
+  }
+
+  // Find all edge cells above the percentile-derived threshold
   // No distinction between outer boundary and interior — Sobel sees all equally
   const edgeCells = new Set(
     Object.entries(gradient)
@@ -932,7 +943,7 @@ function computeBoundary() {
     boundaryChains,
     obstacleChains,
     reachable,
-    threshold,
+    threshold: sliderValue,
     confidence,
     sessionCount
   };
@@ -966,7 +977,7 @@ function redrawBoundary() {
   });
 
   document.getElementById("boundaryConfidence").textContent =
-    `Confidence: ${boundary.confidence}% · Threshold: ${boundary.threshold} · Sessions: ${boundary.sessionCount}` +
+    `Confidence: ${boundary.confidence}% · Sensitivity: ${boundary.threshold}% · Sessions: ${boundary.sessionCount}` +
     (boundary.obstacleChains.length > 0 ? ` · Obstacles: ${boundary.obstacleChains.length}` : "");
 }
 
