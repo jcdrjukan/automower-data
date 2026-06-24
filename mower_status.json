@@ -1,1 +1,1 @@
-{"activity": "UNKNOWN", "battery": 100, "reason": "parked", "mower_report_time": "2026-06-24T16:34:15.409000+00:00", "updated": "2026-06-24T16:40:28.196700+00:00"}
+{"activity": "PARKED_IN_CS", "battery": 99, "reason": "daily limit reached", "mower_report_time": "2026-06-24T16:50:21.289000+00:00", "updated": "2026-06-24T16:50:24.192388+00:00"}
