@@ -1236,10 +1236,26 @@ function buildCharts() {
     } else {
       filtered = all; // all time
     }
-    return filtered.map(s => ({
-      x: s.timestamp.slice(5,16).replace("T"," "),
-      y: s.battery
-    }));
+    // Build {x: epoch ms, y: battery} points, inserting null between any two
+    // consecutive saved sessions whose timestamps are more than ~20 minutes
+    // apart. The mower polls every ~10 min during mowing hours, so a gap that
+    // wide means either an overnight break (no data) or a washed-out stretch
+    // of cached duplicates. Either way the line should break, not connect.
+    const GAP_MS = 20 * 60 * 1000;
+    const points = [];
+    for (let i = 0; i < filtered.length; i++) {
+      const t = new Date(filtered[i].timestamp).getTime();
+      if (i > 0) {
+        const prevT = new Date(filtered[i-1].timestamp).getTime();
+        if (t - prevT > GAP_MS) {
+          // Null y between the two real points — Chart.js with spanGaps:false
+          // will render this as a break.
+          points.push({ x: (prevT + t) / 2, y: null });
+        }
+      }
+      points.push({ x: t, y: filtered[i].battery });
+    }
+    return points;
   }
 
   const batteryPeriodBtns = `
@@ -1305,8 +1321,18 @@ function buildCharts() {
       plugins: { legend: { display: false } },
       scales: {
         x: {
-          type: "category",
-          ticks: { color: "#4a7a4a", font: { size: 9 }, maxTicksLimit: 8, maxRotation: 0 },
+          type: "linear",
+          ticks: {
+            color: "#4a7a4a", font: { size: 9 }, maxTicksLimit: 8, maxRotation: 0,
+            callback: function(value) {
+              const d = new Date(value);
+              const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+              const dd = String(d.getUTCDate()).padStart(2, "0");
+              const hh = String(d.getUTCHours()).padStart(2, "0");
+              const mi = String(d.getUTCMinutes()).padStart(2, "0");
+              return `${mm}-${dd} ${hh}:${mi}`;
+            }
+          },
           grid: { color: "#1e3a1e" }
         },
         y: {
