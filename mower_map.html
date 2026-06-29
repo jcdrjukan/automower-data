@@ -197,17 +197,15 @@
     <span id="mowerUpdated" style="color:#4a7a4a">—</span>
   </div>
   <div class="controls">
-    <button id="btnTrack" onclick="showTrack()">Latest Track</button>
-    <button id="btnHeat" class="active" onclick="showHeatmap()">Heatmap</button>
-    <button id="btnAll" onclick="showAll()">All Tracks</button>
-    <button id="btnCoverage" onclick="showCoverage()">Coverage</button>
+    <button id="btnHeat" onclick="showHeatmap()">Heatmap</button>
+    <button id="btnCoverage" class="active" onclick="showCoverage()">Coverage</button>
     <button id="btnStats" onclick="showStats()">Stats</button>
     <button onclick="refreshData();refreshMowerStatus()">↻ Refresh</button>
     <div class="divider"></div>
     <button id="btnOSM" class="active" onclick="setMapType('osm')">Map</button>
     <button id="btnSat" onclick="setMapType('satellite')">Satellite</button>
     <div class="divider"></div>
-    <button class="export" onclick="exportTracksSVG()">↓ Tracks SVG</button>
+    <button class="export" onclick="exportCoverageSVG()">↓ Coverage SVG</button>
     <button class="export" onclick="exportHeatmapSVG()">↓ Heatmap SVG</button>
   </div>
 </header>
@@ -245,11 +243,12 @@
   <!-- Coverage controls -->
   <div class="coverage-controls" id="coverageControls">
     <div class="coverage-period-row">
-      <button class="period-btn active" id="pBtnSession" onclick="setCoveragePeriod('session')">Last Session</button>
-      <button class="period-btn" id="pBtnToday" onclick="setCoveragePeriod('today')">Today</button>
+      <button class="period-btn" id="pBtnSession" onclick="setCoveragePeriod('session')">Last Session</button>
+      <button class="period-btn active" id="pBtnToday" onclick="setCoveragePeriod('today')">Today</button>
       <button class="period-btn" id="pBtnYesterday" onclick="setCoveragePeriod('yesterday')">Yesterday</button>
       <button class="period-btn" id="pBtn3days" onclick="setCoveragePeriod('3days')">3 Days</button>
       <button class="period-btn" id="pBtn7days" onclick="setCoveragePeriod('7days')">7 Days</button>
+      <button class="period-btn" id="pBtnAll" onclick="setCoveragePeriod('all')">All</button>
     </div>
     <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:#4a7a4a">
       <span>Edge sensitivity</span>
@@ -342,10 +341,8 @@
     <div class="menu-section">
       <div class="menu-label">View</div>
       <div class="menu-row">
-        <button class="menu-btn" id="mBtnTrack" onclick="showTrack();closeMenu()">Latest Track</button>
-        <button class="menu-btn active" id="mBtnHeat" onclick="showHeatmap();closeMenu()">Heatmap</button>
-        <button class="menu-btn" id="mBtnAll" onclick="showAll();closeMenu()">All Tracks</button>
-        <button class="menu-btn" id="mBtnCoverage" onclick="showCoverage();closeMenu()">Coverage</button>
+        <button class="menu-btn" id="mBtnHeat" onclick="showHeatmap();closeMenu()">Heatmap</button>
+        <button class="menu-btn active" id="mBtnCoverage" onclick="showCoverage();closeMenu()">Coverage</button>
         <button class="menu-btn" id="mBtnStats" onclick="showStats();closeMenu()">Stats</button>
       </div>
     </div>
@@ -406,7 +403,7 @@
     </div>
       <div class="menu-row">
         <button class="menu-btn" onclick="refreshData();refreshMowerStatus();closeMenu()">↻ Refresh</button>
-        <button class="menu-btn export-btn" onclick="exportTracksSVG();closeMenu()">↓ Tracks SVG</button>
+        <button class="menu-btn export-btn" onclick="exportCoverageSVG();closeMenu()">↓ Coverage SVG</button>
         <button class="menu-btn export-btn" onclick="exportHeatmapSVG();closeMenu()">↓ Heatmap SVG</button>
       </div>
     </div>
@@ -420,7 +417,6 @@ const RAIN_EVENTS_URL = "https://raw.githubusercontent.com/jcdrjukan/automower-d
 let rainEvents = [];
 const GARDEN_LAT = 59.8792;
 const GARDEN_LON = 8.5793;
-const TRACK_COLORS = ["#5cdb5c","#4ab84a","#3a963a","#2a742a","#1a521a"];
 
 let map, allData = [], currentMode = "heat";
 let layers = [];
@@ -602,24 +598,6 @@ function syncBoundary(checked) {
 
 let heatLayer = null;
 
-function showTrack() {
-  clearLayers(); currentMode = "track";
-  hideStats(); hideCoverage();
-  setActiveBtn("btnTrack","mBtnTrack");
-  document.getElementById("heatmapControls").classList.remove("visible");
-  document.getElementById("mHeatmapSection").style.display = "none";
-  if (allData.length === 0) return;
-  const latest = allData[allData.length-1];
-  const coords = latest.positions.map(p => [p.latitude, p.longitude]);
-  const line = L.polyline(coords, { color:"#5cdb5c", weight:2.5, opacity:0.9 }).addTo(map);
-  layers.push(line);
-  if (coords.length > 0) {
-    layers.push(L.circleMarker(coords[0], { radius:5, color:"#7ec87e", fillColor:"#7ec87e", fillOpacity:1 }).bindTooltip("Start").addTo(map));
-    layers.push(L.circleMarker(coords[coords.length-1], { radius:5, color:"#ff9944", fillColor:"#ff9944", fillOpacity:1 }).bindTooltip("Latest").addTo(map));
-    map.fitBounds(line.getBounds(), { padding:[40,40] });
-  }
-}
-
 function showHeatmap() {
   clearLayers(); currentMode = "heat";
   hideStats(); hideCoverage();
@@ -736,7 +714,7 @@ const COVER_CELL_LON = 1.0 / METERS_PER_DEG_LON;
 const DISP_CELL_LAT  = 0.5 / METERS_PER_DEG_LAT;  // 0.5m cells for visual display
 const DISP_CELL_LON  = 0.5 / METERS_PER_DEG_LON;
 
-let coveragePeriod = "session";
+let coveragePeriod = "today";
 let coverageLayers = [];
 let boundaryPolygon = null;
 let gardenCells = null; // cached boundary cell set
@@ -760,11 +738,11 @@ function showCoverage() {
 
 function setCoveragePeriod(period) {
   coveragePeriod = period;
-  ["pBtnSession","pBtnToday","pBtnYesterday","pBtn3days","pBtn7days"].forEach(id => {
+  ["pBtnSession","pBtnToday","pBtnYesterday","pBtn3days","pBtn7days","pBtnAll"].forEach(id => {
     document.getElementById(id).classList.remove("active");
   });
   const map = { session:"pBtnSession", today:"pBtnToday", yesterday:"pBtnYesterday",
-                "3days":"pBtn3days", "7days":"pBtn7days" };
+                "3days":"pBtn3days", "7days":"pBtn7days", "all":"pBtnAll" };
   document.getElementById(map[period]).classList.add("active");
   renderCoverage();
 }
@@ -788,6 +766,8 @@ function getSessionsForPeriod(period) {
   } else if (period === "7days") {
     const cutoff = new Date(norNow - 7*86400000).toISOString().slice(0,10);
     return allData.filter(s => s.timestamp.slice(0,10) >= cutoff);
+  } else if (period === "all") {
+    return allData;
   }
   return [];
 }
@@ -1354,23 +1334,6 @@ function buildCharts() {
   });
 }
 
-function showAll() {
-  clearLayers(); currentMode = "all";
-  hideStats(); hideCoverage();
-  setActiveBtn("btnAll","mBtnAll");
-  document.getElementById("heatmapControls").classList.remove("visible");
-  document.getElementById("mHeatmapSection").style.display = "none";
-  if (allData.length === 0) return;
-  const bounds = [];
-  allData.forEach((session, i) => {
-    const coords = session.positions.map(p => [p.latitude, p.longitude]);
-    const line = L.polyline(coords, { color:TRACK_COLORS[i%TRACK_COLORS.length], weight:1.5, opacity:0.7 }).addTo(map);
-    layers.push(line);
-    bounds.push(...coords);
-  });
-  if (bounds.length > 0) map.fitBounds(L.latLngBounds(bounds), { padding:[40,40] });
-}
-
 function setMapType(type) {
   if (type === "osm") {
     map.removeLayer(satLayer); osmLayer.addTo(map);
@@ -1384,8 +1347,8 @@ function setMapType(type) {
 }
 
 function setActiveBtn(deskId, mobId) {
-  ["btnTrack","btnHeat","btnAll","btnCoverage","btnStats"].forEach(b => { const el=document.getElementById(b); if(el) el.classList.toggle("active", b===deskId); });
-  ["mBtnTrack","mBtnHeat","mBtnAll","mBtnCoverage","mBtnStats"].forEach(b => { const el=document.getElementById(b); if(el) el.classList.toggle("active", b===mobId); });
+  ["btnHeat","btnCoverage","btnStats"].forEach(b => { const el=document.getElementById(b); if(el) el.classList.toggle("active", b===deskId); });
+  ["mBtnHeat","mBtnCoverage","mBtnStats"].forEach(b => { const el=document.getElementById(b); if(el) el.classList.toggle("active", b===mobId); });
 }
 
 function toggleMenu() {
@@ -1407,15 +1370,79 @@ function toXY(lat, lon, b, W, H, pad) {
   return { x:(pad+(lon-b.minLon)/(b.maxLon-b.minLon)*W).toFixed(2),
            y:(pad+(1-(lat-b.minLat)/(b.maxLat-b.minLat))*H).toFixed(2) };
 }
-function exportTracksSVG() {
-  const b=getBounds(); if(!b){alert("No data yet!");return;}
-  const PAD=40,W=800,H=800;
-  let svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W+PAD*2} ${H+PAD*2}">\n<rect width="100%" height="100%" fill="none"/>\n`;
-  allData.forEach((s,i)=>{
-    const pts=s.positions.map(p=>{const c=toXY(p.latitude,p.longitude,b,W,H,PAD);return`${c.x},${c.y}`;}).join(" ");
-    svg+=`<polyline points="${pts}" fill="none" stroke="${TRACK_COLORS[i%TRACK_COLORS.length]}" stroke-width="1.5" stroke-opacity="0.8" stroke-linecap="round"/>\n`;
+function exportCoverageSVG() {
+  const b = getBounds();
+  if (!b) { alert("No data yet!"); return; }
+  const PAD = 40, W = 800, H = 800;
+
+  // Use whatever period is currently selected in the Coverage view
+  const sessions = getSessionsForPeriod(coveragePeriod);
+  if (!sessions.length) { alert("No data for this period!"); return; }
+
+  // Rebuild the same dispCells set that renderCoverage uses
+  const dispCells = new Set();
+  sessions.forEach(session => {
+    const positions = session.positions;
+    for (let i = 0; i < positions.length; i++) {
+      const p = positions[i];
+      dispCells.add(`${Math.round(p.longitude/DISP_CELL_LON)},${Math.round(p.latitude/DISP_CELL_LAT)}`);
+      if (i < positions.length - 1) {
+        const p2 = positions[i+1];
+        const steps = Math.ceil(Math.sqrt(
+          Math.pow((p2.longitude-p.longitude)/DISP_CELL_LON, 2) +
+          Math.pow((p2.latitude-p.latitude)/DISP_CELL_LAT, 2)
+        ) * 1.5);
+        for (let s = 1; s < steps; s++) {
+          const t = s/steps;
+          const iLon = p.longitude + (p2.longitude-p.longitude)*t;
+          const iLat = p.latitude + (p2.latitude-p.latitude)*t;
+          dispCells.add(`${Math.round(iLon/DISP_CELL_LON)},${Math.round(iLat/DISP_CELL_LAT)}`);
+        }
+      }
+    }
   });
-  downloadSVG(svg+"</svg>","automower_tracks.svg");
+
+  // Cached gradient may not be populated if user hasn't visited Coverage yet
+  computeGradient();
+  const boundary = computeBoundary();
+
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W+PAD*2} ${H+PAD*2}">\n<rect width="100%" height="100%" fill="none"/>\n`;
+
+  // Cut cells (green) — slightly smaller than full cell to mirror the live view
+  dispCells.forEach(key => {
+    const [gx, gy] = key.split(",").map(Number);
+    const lat = gy * DISP_CELL_LAT;
+    const lon = gx * DISP_CELL_LON;
+    const halfLat = DISP_CELL_LAT * 0.55;
+    const halfLon = DISP_CELL_LON * 0.55;
+    const tl = toXY(lat + halfLat, lon - halfLon, b, W, H, PAD);
+    const br = toXY(lat - halfLat, lon + halfLon, b, W, H, PAD);
+    const x = Math.min(parseFloat(tl.x), parseFloat(br.x));
+    const y = Math.min(parseFloat(tl.y), parseFloat(br.y));
+    const w = Math.abs(parseFloat(br.x) - parseFloat(tl.x));
+    const h = Math.abs(parseFloat(br.y) - parseFloat(tl.y));
+    svg += `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${w.toFixed(2)}" height="${h.toFixed(2)}" fill="#5cdb5c" fill-opacity="0.55"/>\n`;
+  });
+
+  // Boundary (amber dashed) and obstacles (red dashed) — match live view styling
+  if (boundary) {
+    boundary.boundaryChains.forEach(chain => {
+      const pts = chain.map(p => {
+        const c = toXY(p[0], p[1], b, W, H, PAD);
+        return `${c.x},${c.y}`;
+      }).join(" ");
+      svg += `<polyline points="${pts}" fill="none" stroke="#ffaa00" stroke-width="1.5" stroke-opacity="0.85" stroke-dasharray="5,4"/>\n`;
+    });
+    boundary.obstacleChains.forEach(chain => {
+      const pts = chain.map(p => {
+        const c = toXY(p[0], p[1], b, W, H, PAD);
+        return `${c.x},${c.y}`;
+      }).join(" ");
+      svg += `<polyline points="${pts}" fill="none" stroke="#ff4444" stroke-width="1.5" stroke-opacity="0.75" stroke-dasharray="3,4"/>\n`;
+    });
+  }
+
+  downloadSVG(svg + "</svg>", `automower_coverage_${coveragePeriod}.svg`);
 }
 function exportHeatmapSVG() {
   const b=getBounds(); if(!b){alert("No data yet!");return;}
@@ -1550,7 +1577,7 @@ async function refreshData() {
   } catch(e) { rainEvents = []; }
   updateStats(allData);
   cachedSessionCount = 0; // invalidate gradient cache
-  showHeatmap();
+  showCoverage();
 }
 
 function saveHeatmapSettings() {
