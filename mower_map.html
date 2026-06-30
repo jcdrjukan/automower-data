@@ -1057,14 +1057,14 @@ function redrawBoundary() {
 
   boundary.boundaryChains.forEach(chain => {
     const line = L.polyline(chain, {
-      color: "#ffaa00", weight: 1.5, opacity: 0.85, dashArray: "5,4"
+      color: "#ffee00", weight: 2.5, opacity: 1, dashArray: "6,4"
     }).addTo(map);
     line._isBoundaryLine = true;
     coverageLayers.push(line);
   });
   boundary.obstacleChains.forEach(chain => {
     const line = L.polyline(chain, {
-      color: "#ff4444", weight: 1.5, opacity: 0.75, dashArray: "3,4"
+      color: "#ff3333", weight: 2.5, opacity: 0.95, dashArray: "4,4"
     }).addTo(map);
     line._isBoundaryLine = true;
     coverageLayers.push(line);
@@ -1560,14 +1560,14 @@ function exportCoverageSVG() {
         const c = toXY(p[0], p[1], b, W, H, PAD);
         return `${c.x},${c.y}`;
       }).join(" ");
-      svg += `<polyline points="${pts}" fill="none" stroke="#ffaa00" stroke-width="1.5" stroke-opacity="0.85" stroke-dasharray="5,4"/>\n`;
+      svg += `<polyline points="${pts}" fill="none" stroke="#ffee00" stroke-width="2.5" stroke-opacity="1" stroke-dasharray="6,4"/>\n`;
     });
     boundary.obstacleChains.forEach(chain => {
       const pts = chain.map(p => {
         const c = toXY(p[0], p[1], b, W, H, PAD);
         return `${c.x},${c.y}`;
       }).join(" ");
-      svg += `<polyline points="${pts}" fill="none" stroke="#ff4444" stroke-width="1.5" stroke-opacity="0.75" stroke-dasharray="3,4"/>\n`;
+      svg += `<polyline points="${pts}" fill="none" stroke="#ff3333" stroke-width="2.5" stroke-opacity="0.95" stroke-dasharray="4,4"/>\n`;
     });
   }
 
