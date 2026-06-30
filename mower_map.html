@@ -251,11 +251,11 @@
       <button class="period-btn" id="pBtnAll" onclick="setCoveragePeriod('all')">All</button>
     </div>
     <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:#4a7a4a">
-      <span>Edge sensitivity</span>
-      <input type="range" id="sobelThreshold" min="1" max="50" value="8" step="0.5"
+      <span>Density threshold</span>
+      <input type="range" id="sobelThreshold" min="5" max="95" value="30" step="1"
         style="flex:1;min-width:120px"
         oninput="document.getElementById('sobelVal').textContent=this.value;redrawBoundary()">
-      <span id="sobelVal" style="color:#ffaa00;min-width:24px">8</span>
+      <span id="sobelVal" style="color:#ffaa00;min-width:24px">30</span>
     </div>
     <div class="coverage-stat">
       Coverage: <strong id="coveragePct">—</strong>
@@ -772,22 +772,23 @@ function getSessionsForPeriod(period) {
   return [];
 }
 
-// ── UNIFIED SOBEL BOUNDARY & OBSTACLE DETECTION ───────────────────────────
+// ── UNIFIED BOUNDARY & OBSTACLE DETECTION (marching squares) ─────────────
 
-let cachedGradient = null;   // gradient map — recomputed only when data changes
+let cachedBlurred = null;    // Gaussian-blurred density — the scalar field whose
+                             // isolines we trace to find the boundary.
 let cachedReachable = null;  // reachable core — recomputed only when data changes
 let cachedGrid = null;       // raw density grid
 let cachedSessionCount = 0;  // detect when data changes
 
 function computeGradient() {
   // Only recompute if data has changed
-  if (cachedSessionCount === allData.length && cachedGradient) return;
+  if (cachedSessionCount === allData.length && cachedBlurred) return;
   cachedSessionCount = allData.length;
 
   const allPositions = allData.flatMap(s => s.positions);
-  if (allPositions.length < 10) { cachedGradient = null; return; }
+  if (allPositions.length < 10) { cachedBlurred = null; return; }
 
-  // Pass 1: 1m density grid
+  // Pass 1: 1m density grid (each cell holds count of GPS points landing in it)
   const grid = {};
   allPositions.forEach(p => {
     const key = `${Math.round(p.longitude/COVER_CELL_LON)},${Math.round(p.latitude/COVER_CELL_LAT)}`;
@@ -797,13 +798,15 @@ function computeGradient() {
 
   const getD = (gx, gy) => grid[`${gx},${gy}`] || 0;
 
-  // Pass 2: Gaussian blur
+  // Pass 2: Gaussian blur of the density grid. This produces a smooth scalar
+  // field whose isolines (lines of constant density) trace the garden edge.
+  // The ring is widened to 2 cells around visited area so marching squares
+  // has somewhere to find the threshold crossing just outside the mowed zone.
   const blurred = {};
-  // Expand to include neighbours of all visited cells
   const toBlur = new Set();
   Object.keys(grid).forEach(key => {
     const [gx, gy] = key.split(",").map(Number);
-    for (let dx=-1; dx<=1; dx++) for (let dy=-1; dy<=1; dy++) toBlur.add(`${gx+dx},${gy+dy}`);
+    for (let dx=-2; dx<=2; dx++) for (let dy=-2; dy<=2; dy++) toBlur.add(`${gx+dx},${gy+dy}`);
   });
   toBlur.forEach(key => {
     const [gx, gy] = key.split(",").map(Number);
@@ -813,26 +816,9 @@ function computeGradient() {
       getD(gx-1,gy+1)*1 + getD(gx,gy+1)*2 + getD(gx+1,gy+1)*1
     ) / 16;
   });
-  const getB = (gx, gy) => blurred[`${gx},${gy}`] || 0;
+  cachedBlurred = blurred;
 
-  // Pass 3: Sobel gradient magnitude — applied to ALL cells including boundary zone
-  const gradient = {};
-  toBlur.forEach(key => {
-    const [gx, gy] = key.split(",").map(Number);
-    const Gx = (
-      -1*getB(gx-1,gy-1) + 1*getB(gx+1,gy-1) +
-      -2*getB(gx-1,gy  ) + 2*getB(gx+1,gy  ) +
-      -1*getB(gx-1,gy+1) + 1*getB(gx+1,gy+1)
-    );
-    const Gy = (
-      -1*getB(gx-1,gy-1) - 2*getB(gx,gy-1) - 1*getB(gx+1,gy-1) +
-       1*getB(gx-1,gy+1) + 2*getB(gx,gy+1) + 1*getB(gx+1,gy+1)
-    );
-    gradient[key] = Math.sqrt(Gx*Gx + Gy*Gy);
-  });
-  cachedGradient = gradient;
-
-  // Pass 4: Build reachable core for coverage % calculation
+  // Build reachable core for coverage % calculation — unchanged logic.
   const counts = Object.values(grid).sort((a,b) => a-b);
   const coreThreshold = Math.max(2, counts[Math.floor(counts.length * 0.5)]);
   const coreCells = new Set(
@@ -857,75 +843,192 @@ function computeGradient() {
   cachedReachable = reachable;
 }
 
-function computeBoundary() {
-  if (!cachedGradient) return null;
-
-  const sliderValue = parseFloat(document.getElementById("sobelThreshold").value);
-  const gradient = cachedGradient;
-  const reachable = cachedReachable;
-  const grid = cachedGrid;
-  const sessionCount = allData.length;
-
-  // Percentile-based threshold: slider value = the top X% of gradients shown
-  // as edges. Self-calibrating as data accumulates — "top 8%" stays meaningful
-  // whether we have 200 sessions or 2000, because the cutoff scales with the
-  // current gradient distribution rather than against a fixed magnitude.
-  const positiveGradients = Object.values(gradient).filter(g => g > 0).sort((a, b) => a - b);
-  let threshold = 0;
-  if (positiveGradients.length > 0) {
-    const cutoffIdx = Math.floor(positiveGradients.length * (1 - sliderValue / 100));
-    threshold = positiveGradients[Math.max(0, Math.min(cutoffIdx, positiveGradients.length - 1))];
-  }
-
-  // Find all edge cells above the percentile-derived threshold
-  // No distinction between outer boundary and interior — Sobel sees all equally
-  const edgeCells = new Set(
-    Object.entries(gradient)
-      .filter(([, g]) => g >= threshold)
-      .map(([k]) => k)
-  );
-
-  // Build edges where edge cells border lower-density cells
-  const allEdges = [];
-  edgeCells.forEach(key => {
-    const [gx, gy] = key.split(",").map(Number);
-    const hLat = COVER_CELL_LAT / 2;
-    const hLon = COVER_CELL_LON / 2;
-    const cx = gx * COVER_CELL_LON;
-    const cy = gy * COVER_CELL_LAT;
-    [[0,1],[0,-1],[1,0],[-1,0]].forEach(([dx,dy]) => {
-      const nk = `${gx+dx},${gy+dy}`;
-      const myG = gradient[key] || 0;
-      const nG = gradient[nk] || 0;
-      // Draw edge on the side facing lower gradient (the "downhill" side)
-      if (myG > nG) {
-        if (dy !== 0) allEdges.push([[cy+dy*hLat, cx-hLon],[cy+dy*hLat, cx+hLon]]);
-        else allEdges.push([[cy-hLat, cx+dx*hLon],[cy+hLat, cx+dx*hLon]]);
-      }
-    });
+// Chain floating-point segments into polylines. Unlike chainEdges (which is
+// for grid-snapped edges), this matches endpoints by exact value, rounded to
+// 10 decimal places to absorb any floating-point inconsistency.
+function chainFloatSegments(segments) {
+  if (segments.length === 0) return [];
+  const ptKey = p => `${p[0].toFixed(10)},${p[1].toFixed(10)}`;
+  const adj = {};
+  segments.forEach((s, i) => {
+    const k0 = ptKey(s[0]);
+    const k1 = ptKey(s[1]);
+    (adj[k0] = adj[k0] || []).push({ segIdx: i, ptIdx: 0 });
+    (adj[k1] = adj[k1] || []).push({ segIdx: i, ptIdx: 1 });
   });
 
-  const chains = chainEdges(allEdges);
-  const smoothed = chains
-    .filter(c => c.length >= 4)
-    .map(c => chaikinSmooth(c, 3));
+  const used = new Set();
+  const chains = [];
 
-  // Classify chains: chains whose centroid is near the garden edge = boundary
-  // chains whose centroid is well inside reachable area = obstacles
+  for (let startIdx = 0; startIdx < segments.length; startIdx++) {
+    if (used.has(startIdx)) continue;
+    used.add(startIdx);
+    const chain = [segments[startIdx][0], segments[startIdx][1]];
+
+    // Walk forward from tail
+    while (true) {
+      const tip = chain[chain.length - 1];
+      const neighbors = adj[ptKey(tip)] || [];
+      let extended = false;
+      for (const nb of neighbors) {
+        if (used.has(nb.segIdx)) continue;
+        used.add(nb.segIdx);
+        chain.push(segments[nb.segIdx][nb.ptIdx === 0 ? 1 : 0]);
+        extended = true;
+        break;
+      }
+      if (!extended) break;
+    }
+
+    // Walk backward from head
+    while (true) {
+      const tip = chain[0];
+      const neighbors = adj[ptKey(tip)] || [];
+      let extended = false;
+      for (const nb of neighbors) {
+        if (used.has(nb.segIdx)) continue;
+        used.add(nb.segIdx);
+        chain.unshift(segments[nb.segIdx][nb.ptIdx === 0 ? 1 : 0]);
+        extended = true;
+        break;
+      }
+      if (!extended) break;
+    }
+
+    if (chain.length >= 2) chains.push(chain);
+  }
+  return chains;
+}
+
+function computeBoundary() {
+  if (!cachedBlurred) return null;
+
+  const sliderValue = parseFloat(document.getElementById("sobelThreshold").value);
+  const blurred = cachedBlurred;
+  const reachable = cachedReachable;
+  const sessionCount = allData.length;
+
+  // Slider → density threshold τ via percentile of non-zero cells.
+  // Slider X means "X % of (non-zero-density) cells are below τ" → cells
+  // below τ are deemed outside the boundary. Higher slider = stricter
+  // boundary, fewer cells inside.
+  const nonZeroVals = Object.values(blurred).filter(v => v > 0).sort((a, b) => a - b);
+  if (nonZeroVals.length === 0) return null;
+  const cutoffIdx = Math.floor(nonZeroVals.length * (sliderValue / 100));
+  const threshold = nonZeroVals[Math.max(0, Math.min(cutoffIdx, nonZeroVals.length - 1))];
+
+  // Iterate marching squares over the bounding box of cells with any blurred
+  // density. Each square at (gx, gy) has corners at integer positions
+  //   bl=(gx, gy)   br=(gx+1, gy)   tl=(gx, gy+1)   tr=(gx+1, gy+1)
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  Object.keys(blurred).forEach(key => {
+    const [gx, gy] = key.split(",").map(Number);
+    if (gx < minX) minX = gx;
+    if (gx > maxX) maxX = gx;
+    if (gy < minY) minY = gy;
+    if (gy > maxY) maxY = gy;
+  });
+
+  const getD = (gx, gy) => blurred[`${gx},${gy}`] || 0;
+  const segments = [];
+
+  for (let gx = minX - 1; gx <= maxX; gx++) {
+    for (let gy = minY - 1; gy <= maxY; gy++) {
+      const bl = getD(gx, gy);
+      const br = getD(gx + 1, gy);
+      const tl = getD(gx, gy + 1);
+      const tr = getD(gx + 1, gy + 1);
+
+      const blIn = bl >= threshold;
+      const brIn = br >= threshold;
+      const tlIn = tl >= threshold;
+      const trIn = tr >= threshold;
+
+      // Skip if all corners on the same side — no boundary crosses this square
+      if (blIn === brIn && brIn === tlIn && tlIn === trIn) continue;
+
+      // Linear interpolation: where along an edge does the threshold cross?
+      // t in [0,1] is the fractional position from the "v1" corner to the "v2" corner.
+      const interp = (v1, v2) => (threshold - v1) / (v2 - v1);
+
+      const bottomT = (blIn !== brIn) ? interp(bl, br) : null;
+      const rightT  = (brIn !== trIn) ? interp(br, tr) : null;
+      const topT    = (tlIn !== trIn) ? interp(tl, tr) : null;
+      const leftT   = (blIn !== tlIn) ? interp(bl, tl) : null;
+
+      // Crossing points in floating-point grid coordinates
+      const bottomPt = bottomT !== null ? [gx + bottomT, gy] : null;
+      const rightPt  = rightT  !== null ? [gx + 1, gy + rightT] : null;
+      const topPt    = topT    !== null ? [gx + topT, gy + 1] : null;
+      const leftPt   = leftT   !== null ? [gx, gy + leftT] : null;
+
+      // 16-case lookup — which edges of the square does the contour cross,
+      // and how do crossings connect? Saddle cases (5 and 10) use the centre
+      // average to decide which way the "in" region connects through.
+      let idx = 0;
+      if (blIn) idx |= 1;
+      if (brIn) idx |= 2;
+      if (trIn) idx |= 4;
+      if (tlIn) idx |= 8;
+
+      switch (idx) {
+        case 1: case 14: segments.push([leftPt, bottomPt]); break;
+        case 2: case 13: segments.push([bottomPt, rightPt]); break;
+        case 3: case 12: segments.push([leftPt, rightPt]); break;
+        case 4: case 11: segments.push([rightPt, topPt]); break;
+        case 6: case 9:  segments.push([bottomPt, topPt]); break;
+        case 7: case 8:  segments.push([leftPt, topPt]); break;
+        case 5: {
+          const centre = (bl + br + tl + tr) / 4;
+          if (centre >= threshold) {
+            segments.push([bottomPt, rightPt]);
+            segments.push([leftPt, topPt]);
+          } else {
+            segments.push([leftPt, bottomPt]);
+            segments.push([topPt, rightPt]);
+          }
+          break;
+        }
+        case 10: {
+          const centre = (bl + br + tl + tr) / 4;
+          if (centre >= threshold) {
+            segments.push([leftPt, bottomPt]);
+            segments.push([rightPt, topPt]);
+          } else {
+            segments.push([leftPt, topPt]);
+            segments.push([bottomPt, rightPt]);
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  // Convert grid-coordinate segments to lat/lon (each grid step is 1m, and
+  // COVER_CELL_LAT/LON convert metres to degrees in each direction).
+  const segmentsLL = segments.map(seg => seg.map(p => [
+    p[1] * COVER_CELL_LAT,  // latitude
+    p[0] * COVER_CELL_LON   // longitude
+  ]));
+
+  // Chain segments into closed polylines
+  const chains = chainFloatSegments(segmentsLL);
+
+  // Classify chains. The OUTER boundary loop surrounds the garden, so its
+  // centroid sits in a reachable cell (densely-mowed core). An OBSTACLE loop
+  // surrounds an unreachable patch (tree, structure, etc.), so its centroid
+  // sits in a cell that is NOT in the reachable set.
   const boundaryChains = [];
   const obstacleChains = [];
 
-  smoothed.forEach(chain => {
-    const centLat = chain.reduce((s,p) => s+p[0], 0) / chain.length;
-    const centLon = chain.reduce((s,p) => s+p[1], 0) / chain.length;
-    const centKey = `${Math.round(centLon/COVER_CELL_LON)},${Math.round(centLat/COVER_CELL_LAT)}`;
-    // Check how many neighbours of centroid are reachable
-    const [cgx, cgy] = centKey.split(",").map(Number);
-    const reachableNeighbours = [[0,1],[0,-1],[1,0],[-1,0],[1,1],[-1,1],[1,-1],[-1,-1]]
-      .filter(([dx,dy]) => reachable.has(`${cgx+dx},${cgy+dy}`)).length;
-    // Interior obstacles are surrounded by reachable cells on most sides
-    if (reachableNeighbours >= 6) obstacleChains.push(chain);
-    else boundaryChains.push(chain);
+  chains.forEach(chain => {
+    if (chain.length < 4) return;
+    const centLat = chain.reduce((s, p) => s + p[0], 0) / chain.length;
+    const centLon = chain.reduce((s, p) => s + p[1], 0) / chain.length;
+    const cgx = Math.round(centLon / COVER_CELL_LON);
+    const cgy = Math.round(centLat / COVER_CELL_LAT);
+    if (reachable.has(`${cgx},${cgy}`)) boundaryChains.push(chain);
+    else obstacleChains.push(chain);
   });
 
   const confidence = Math.min(100, Math.round(sessionCount * 0.8));
@@ -968,7 +1071,7 @@ function redrawBoundary() {
   });
 
   document.getElementById("boundaryConfidence").textContent =
-    `Confidence: ${boundary.confidence}% · Sensitivity: ${boundary.threshold}% · Sessions: ${boundary.sessionCount}` +
+    `Confidence: ${boundary.confidence}% · Threshold: ${boundary.threshold}% · Sessions: ${boundary.sessionCount}` +
     (boundary.obstacleChains.length > 0 ? ` · Obstacles: ${boundary.obstacleChains.length}` : "");
 }
 
