@@ -240,6 +240,30 @@
 <div id="map" style="position:relative;flex:1;background:#0a140a">
   <button class="fab" id="fabBtn" onclick="toggleMenu()">☰</button>
 
+  <!-- Time-lapse floating controls (visible during time-lapse for either view) -->
+  <div id="tlControls" style="display:none;position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1001;background:rgba(15,26,15,0.95);border:1px solid #1e3a1e;border-radius:8px;padding:10px 14px;flex-direction:column;gap:8px;align-items:stretch;min-width:280px;max-width:90%;backdrop-filter:blur(4px)">
+    <div id="tlStatus" style="font-size:11px;color:#7ec87e;text-align:center">Preparing…</div>
+    <div id="tlBuildProgress" style="height:3px;background:#2a4a2a;border-radius:2px;overflow:hidden">
+      <div id="tlBuildBar" style="height:100%;width:0%;background:#5cdb5c;transition:width 0.1s"></div>
+    </div>
+    <div id="tlPlaybackRow" style="display:none;align-items:center;gap:4px">
+      <button class="period-btn" onclick="stepTimeLapse(-1)" title="Previous day">⏮</button>
+      <button class="period-btn" id="tlPlayBtn" onclick="togglePlayTimeLapse()" title="Play/pause">▶</button>
+      <button class="period-btn" onclick="stepTimeLapse(1)" title="Next day">⏭</button>
+      <input type="range" id="tlScrubber" min="0" max="0" value="0" step="1"
+        style="flex:1;min-width:80px" oninput="seekTimeLapse(parseInt(this.value))">
+      <select id="tlSpeed" onchange="setTimeLapseSpeed(parseFloat(this.value))"
+        style="background:#162416;color:#7ec87e;border:1px solid #2a4a2a;border-radius:3px;font-size:10px;padding:2px 4px">
+        <option value="0.25">¼×</option>
+        <option value="0.5">½×</option>
+        <option value="1" selected>1×</option>
+        <option value="2">2×</option>
+        <option value="4">4×</option>
+      </select>
+      <button class="period-btn" onclick="exitTimeLapse()" title="Exit time-lapse">✕</button>
+    </div>
+  </div>
+
   <!-- Coverage controls -->
   <div class="coverage-controls" id="coverageControls">
     <div class="coverage-period-row" id="tlPeriodRow">
@@ -249,29 +273,7 @@
       <button class="period-btn" id="pBtn3days" onclick="setCoveragePeriod('3days')">3 Days</button>
       <button class="period-btn" id="pBtn7days" onclick="setCoveragePeriod('7days')">7 Days</button>
       <button class="period-btn" id="pBtnAll" onclick="setCoveragePeriod('all')">All</button>
-      <button class="period-btn" id="pBtnTimeLapse" onclick="startTimeLapse()" style="border-color:#7ec87e;color:#b0e8b0">▶ Time-lapse</button>
-    </div>
-    <div id="tlControls" style="display:none;flex-direction:column;gap:6px;align-items:stretch;width:100%">
-      <div id="tlStatus" style="font-size:11px;color:#7ec87e;text-align:center">Preparing…</div>
-      <div id="tlBuildProgress" style="height:3px;background:#2a4a2a;border-radius:2px;overflow:hidden">
-        <div id="tlBuildBar" style="height:100%;width:0%;background:#5cdb5c;transition:width 0.1s"></div>
-      </div>
-      <div id="tlPlaybackRow" style="display:none;align-items:center;gap:4px">
-        <button class="period-btn" onclick="stepTimeLapse(-1)" title="Previous day">⏮</button>
-        <button class="period-btn" id="tlPlayBtn" onclick="togglePlayTimeLapse()" title="Play/pause">▶</button>
-        <button class="period-btn" onclick="stepTimeLapse(1)" title="Next day">⏭</button>
-        <input type="range" id="tlScrubber" min="0" max="0" value="0" step="1"
-          style="flex:1;min-width:80px" oninput="seekTimeLapse(parseInt(this.value))">
-        <select id="tlSpeed" onchange="setTimeLapseSpeed(parseFloat(this.value))"
-          style="background:#162416;color:#7ec87e;border:1px solid #2a4a2a;border-radius:3px;font-size:10px;padding:2px 4px">
-          <option value="0.25">¼×</option>
-          <option value="0.5">½×</option>
-          <option value="1" selected>1×</option>
-          <option value="2">2×</option>
-          <option value="4">4×</option>
-        </select>
-        <button class="period-btn" onclick="exitTimeLapse()" title="Exit time-lapse">✕</button>
-      </div>
+      <button class="period-btn" id="pBtnTimeLapse" onclick="startTimeLapse('coverage')" style="border-color:#7ec87e;color:#b0e8b0">▶ Time-lapse</button>
     </div>
     <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:#4a7a4a">
       <span>Density threshold</span>
@@ -322,7 +324,7 @@
     <div class="hc-row" style="margin-top:4px">
       <span class="hc-label">Boundary</span>
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#a0d0a0">
-        <input type="checkbox" id="hcBoundary" onchange="updateHeatmap()" style="accent-color:#5cdb5c">
+        <input type="checkbox" id="hcBoundary" onchange="syncBoundary(this.checked);updateHeatmap()" style="accent-color:#5cdb5c">
         Show
       </label>
     </div>
@@ -332,6 +334,7 @@
       <span class="hc-value" id="hcSmoothingVal">2</span>
     </div>
     <div style="color:#3a6a3a;font-size:10px;margin-top:6px">Filtered: <span id="hcFilteredCount">—</span> pts from <span id="hcTotalCount">—</span></div>
+    <button onclick="startTimeLapse('heatmap')" style="margin-top:10px;padding:5px 11px;border-radius:4px;border:1px solid #7ec87e;background:#162416;color:#b0e8b0;font-size:11px;cursor:pointer;width:100%">▶ Time-lapse</button>
   </div>
   <div class="overlay" id="overlay" onclick="closeMenu()"></div>
   <div class="slide-menu" id="slideMenu">
@@ -622,6 +625,8 @@ function syncBoundary(checked) {
 let heatLayer = null;
 
 function showHeatmap() {
+  // Exit any time-lapse that belongs to a different view
+  if (timeLapseState !== "idle" && timeLapseView !== "heatmap") exitTimeLapse();
   clearLayers(); currentMode = "heat";
   hideStats(); hideCoverage();
   setActiveBtn("btnHeat","mBtnHeat");
@@ -639,8 +644,7 @@ function buildHeatmap() {
   const blur = parseInt(document.getElementById("hcBlur").value);
   const max = parseFloat(document.getElementById("hcMax").value);
   const minCount = parseInt(document.getElementById("hcConfidence").value);
-  const showBoundary = document.getElementById("hcBoundary").checked ||
-                       document.getElementById("mHcBoundary").checked;
+  const showBoundary = document.getElementById("hcBoundary").checked;
 
   const allPositions = allData.flatMap(s => s.positions);
   const grid = buildDensityGrid(allPositions);
@@ -666,7 +670,7 @@ function buildHeatmap() {
     const smoothedLines = chains.map(chain => {
       const smoothed = chaikinSmooth(chain, smoothing);
       return L.polyline(smoothed, {
-        color: "#7ec87e", weight: 1.5, opacity: 0.9, dashArray: smoothing > 0 ? null : "4,4"
+        color: boundaryColor(), weight: 1.8, opacity: 0.95, dashArray: smoothing > 0 ? null : "4,4"
       });
     });
     boundaryLayer = L.layerGroup(smoothedLines).addTo(map);
@@ -705,6 +709,7 @@ function syncSlider(name, value) {
 }
 
 function showStats() {
+  if (timeLapseState !== "idle") exitTimeLapse();
   clearLayers();
   currentMode = "stats";
   setActiveBtn("btnStats", "mBtnStats");
@@ -743,8 +748,8 @@ let boundaryPolygon = null;
 let gardenCells = null; // cached boundary cell set
 
 function hideCoverage() {
-  // If a time-lapse is active, close it cleanly first
-  if (timeLapseState !== "idle") exitTimeLapse();
+  // If a coverage-view time-lapse is active, close it cleanly first
+  if (timeLapseState !== "idle" && timeLapseView === "coverage") exitTimeLapse();
   document.getElementById("coverageControls").classList.remove("visible");
   coverageLayers.forEach(l => map.removeLayer(l));
   coverageLayers = [];
@@ -752,6 +757,8 @@ function hideCoverage() {
 }
 
 function showCoverage() {
+  // Exit any time-lapse that belongs to a different view
+  if (timeLapseState !== "idle" && timeLapseView !== "coverage") exitTimeLapse();
   clearLayers(); currentMode = "coverage";
   hideStats();
   setActiveBtn("btnCoverage","mBtnCoverage");
@@ -1068,6 +1075,18 @@ function computeBoundary() {
   };
 }
 
+// Boundary and obstacle colours adapt to the current base layer.
+// Yellow reads well against dark satellite tiles but is nearly invisible on
+// the pale OSM background — darker amber/red replaces it there.
+function boundaryColor() {
+  const isSat = document.getElementById("btnSat")?.classList.contains("active");
+  return isSat ? "#ffee00" : "#b85c00";
+}
+function obstacleColor() {
+  const isSat = document.getElementById("btnSat")?.classList.contains("active");
+  return isSat ? "#ff3333" : "#c8002a";
+}
+
 // Fast redraw using cached gradient — just re-threshold and redraw lines
 function redrawBoundary() {
   // Remove existing boundary lines without clearing coverage rectangles
@@ -1082,14 +1101,14 @@ function redrawBoundary() {
 
   boundary.boundaryChains.forEach(chain => {
     const line = L.polyline(chain, {
-      color: "#ffee00", weight: 2.5, opacity: 1, dashArray: "6,4"
+      color: boundaryColor(), weight: 2.5, opacity: 1, dashArray: "6,4"
     }).addTo(map);
     line._isBoundaryLine = true;
     coverageLayers.push(line);
   });
   boundary.obstacleChains.forEach(chain => {
     const line = L.polyline(chain, {
-      color: "#ff3333", weight: 2.5, opacity: 0.95, dashArray: "4,4"
+      color: obstacleColor(), weight: 2.5, opacity: 0.95, dashArray: "4,4"
     }).addTo(map);
     line._isBoundaryLine = true;
     coverageLayers.push(line);
@@ -1217,7 +1236,8 @@ function renderCoverage() {
 // swap-in-swap-out rather than re-computation.
 
 let timeLapseState = "idle";        // idle | building | ready | playing | paused
-let timeLapseFrames = [];           // [{ date, cutCells, boundaryChains, obstacleChains, sessionsCount, coveragePct }]
+let timeLapseView = null;           // "coverage" | "heatmap" | null
+let timeLapseFrames = [];           // [{ type, date, ...view-specific fields... }]
 let timeLapseCurrentFrame = 0;
 let timeLapsePlaybackTimer = null;
 let timeLapseSpeed = 1;             // 1× = 500 ms/frame
@@ -1411,25 +1431,46 @@ function distinctDates() {
   return [...set].sort();
 }
 
-async function startTimeLapse() {
+async function startTimeLapse(view) {
   if (allData.length === 0 || timeLapseState !== "idle") return;
+  if (view !== "coverage" && view !== "heatmap") view = "coverage";
 
+  timeLapseView = view;
   timeLapseState = "building";
   timeLapseFrames = [];
   timeLapseCurrentFrame = 0;
   timeLapseSavedBounds = map.getBounds();
 
-  // Show time-lapse controls, hide period buttons
-  document.getElementById("tlPeriodRow").style.display = "none";
+  // Show the shared floating controls
   document.getElementById("tlControls").style.display = "flex";
   document.getElementById("tlPlaybackRow").style.display = "none";
   document.getElementById("tlBuildProgress").style.display = "block";
   document.getElementById("tlStatus").textContent = "Building…";
   document.getElementById("tlBuildBar").style.width = "0%";
 
+  // Dim / hide the view's own controls while building — settings are frozen at build time
+  if (view === "coverage") {
+    document.getElementById("tlPeriodRow").style.display = "none";
+  } else {
+    const hc = document.getElementById("heatmapControls");
+    if (hc) { hc.style.opacity = "0.4"; hc.style.pointerEvents = "none"; }
+  }
+
   const dates = distinctDates();
   const total = dates.length;
   const sliderValue = parseFloat(document.getElementById("sobelThreshold").value);
+
+  // Snapshot heatmap render settings at build time so frames render consistently
+  let heatSettings = null;
+  if (view === "heatmap") {
+    heatSettings = {
+      radius:       parseInt(document.getElementById("hcRadius").value),
+      blur:         parseInt(document.getElementById("hcBlur").value),
+      max:          parseFloat(document.getElementById("hcMax").value),
+      minCount:     parseInt(document.getElementById("hcConfidence").value),
+      showBoundary: document.getElementById("hcBoundary").checked
+    };
+  }
 
   for (let i = 0; i < total; i++) {
     if (timeLapseState !== "building") return; // aborted mid-build
@@ -1440,39 +1481,11 @@ async function startTimeLapse() {
     const sessions = allData.filter(s => s.timestamp <= cutoffISO);
     if (sessions.length === 0) continue;
 
-    const fields = computeFieldsFrom(sessions);
-    const boundary = computeBoundaryFrom(fields, sliderValue);
-    const cutCells = computeCutCellsFrom(sessions);
+    const frame = (view === "coverage")
+      ? buildCoverageFrame(day, sessions, sliderValue)
+      : buildHeatmapFrame(day, sessions, sliderValue, heatSettings);
+    if (!frame) continue;
 
-    // Compute coverage % using the same widened-reachable garden the live view uses
-    let coveragePct = null;
-    if (fields && fields.reachable && fields.reachable.size > 0) {
-      const garden = new Set(fields.reachable);
-      fields.reachable.forEach(key => {
-        const [gx, gy] = key.split(",").map(Number);
-        [[0,1],[0,-1],[1,0],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([dx,dy]) => {
-          garden.add(`${gx+dx},${gy+dy}`);
-        });
-      });
-      // Convert display cells back to coarse-grid cells for the pct
-      const pctCells = new Set();
-      sessions.forEach(session => {
-        session.positions.forEach(p => {
-          pctCells.add(`${Math.round(p.longitude/COVER_CELL_LON)},${Math.round(p.latitude/COVER_CELL_LAT)}`);
-        });
-      });
-      const covered = [...pctCells].filter(k => garden.has(k)).length;
-      coveragePct = Math.round(covered / garden.size * 100);
-    }
-
-    const frame = {
-      date: day,
-      cutCells,
-      boundaryChains: boundary.boundaryChains,
-      obstacleChains: boundary.obstacleChains,
-      sessionsCount: sessions.length,
-      coveragePct
-    };
     timeLapseFrames.push(frame);
     timeLapseCurrentFrame = timeLapseFrames.length - 1;
 
@@ -1498,7 +1511,85 @@ async function startTimeLapse() {
   updateTimeLapseStatus();
 }
 
+// Build a coverage-view frame: cut cells + boundary + obstacles + coverage %.
+function buildCoverageFrame(day, sessions, sliderValue) {
+  const fields = computeFieldsFrom(sessions);
+  const boundary = computeBoundaryFrom(fields, sliderValue);
+  const cutCells = computeCutCellsFrom(sessions);
+
+  let coveragePct = null;
+  if (fields && fields.reachable && fields.reachable.size > 0) {
+    const garden = new Set(fields.reachable);
+    fields.reachable.forEach(key => {
+      const [gx, gy] = key.split(",").map(Number);
+      [[0,1],[0,-1],[1,0],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([dx,dy]) => {
+        garden.add(`${gx+dx},${gy+dy}`);
+      });
+    });
+    const pctCells = new Set();
+    sessions.forEach(session => {
+      session.positions.forEach(p => {
+        pctCells.add(`${Math.round(p.longitude/COVER_CELL_LON)},${Math.round(p.latitude/COVER_CELL_LAT)}`);
+      });
+    });
+    const covered = [...pctCells].filter(k => garden.has(k)).length;
+    coveragePct = Math.round(covered / garden.size * 100);
+  }
+
+  return {
+    type: "coverage",
+    date: day,
+    cutCells,
+    boundaryChains: boundary.boundaryChains,
+    obstacleChains: boundary.obstacleChains,
+    sessionsCount: sessions.length,
+    coveragePct
+  };
+}
+
+// Build a heatmap-view frame: positions filtered by the confidence setting,
+// plus (optionally) the marching-squares boundary and obstacles.
+function buildHeatmapFrame(day, sessions, sliderValue, settings) {
+  const positions = sessions.flatMap(s => s.positions);
+  if (positions.length === 0) return null;
+
+  // Apply the confidence filter — same rule as buildHeatmap uses live
+  const grid = {};
+  positions.forEach(p => {
+    const key = `${Math.round(p.longitude/CELL_SIZE)},${Math.round(p.latitude/CELL_SIZE)}`;
+    grid[key] = (grid[key] || 0) + 1;
+  });
+  const filtered = positions.filter(p => {
+    const key = `${Math.round(p.longitude/CELL_SIZE)},${Math.round(p.latitude/CELL_SIZE)}`;
+    return (grid[key] || 0) >= settings.minCount;
+  });
+
+  let boundaryChains = [], obstacleChains = [];
+  if (settings.showBoundary) {
+    const fields = computeFieldsFrom(sessions);
+    const boundary = computeBoundaryFrom(fields, sliderValue);
+    boundaryChains = boundary.boundaryChains;
+    obstacleChains = boundary.obstacleChains;
+  }
+
+  return {
+    type: "heatmap",
+    date: day,
+    positions: filtered,
+    totalPositions: positions.length,
+    settings,
+    boundaryChains,
+    obstacleChains,
+    sessionsCount: sessions.length
+  };
+}
+
 function renderTimeLapseFrame(frame) {
+  if (frame.type === "heatmap") renderHeatmapTimeLapseFrame(frame);
+  else renderCoverageTimeLapseFrame(frame);
+}
+
+function renderCoverageTimeLapseFrame(frame) {
   coverageLayers.forEach(l => map.removeLayer(l));
   coverageLayers = [];
 
@@ -1521,14 +1612,14 @@ function renderTimeLapseFrame(frame) {
 
   frame.boundaryChains.forEach(chain => {
     const line = L.polyline(chain, {
-      color: "#ffee00", weight: 2.5, opacity: 1, dashArray: "6,4"
+      color: boundaryColor(), weight: 2.5, opacity: 1, dashArray: "6,4"
     }).addTo(map);
     line._isBoundaryLine = true;
     coverageLayers.push(line);
   });
   frame.obstacleChains.forEach(chain => {
     const line = L.polyline(chain, {
-      color: "#ff3333", weight: 2.5, opacity: 0.95, dashArray: "4,4"
+      color: obstacleColor(), weight: 2.5, opacity: 0.95, dashArray: "4,4"
     }).addTo(map);
     line._isBoundaryLine = true;
     coverageLayers.push(line);
@@ -1541,6 +1632,45 @@ function renderTimeLapseFrame(frame) {
   document.getElementById("boundaryConfidence").textContent =
     `Sessions: ${frame.sessionsCount}` +
     (frame.obstacleChains.length > 0 ? ` · Obstacles: ${frame.obstacleChains.length}` : "");
+}
+
+function renderHeatmapTimeLapseFrame(frame) {
+  // Clear both heat and any lingering boundary layers
+  if (heatLayer) { map.removeLayer(heatLayer); heatLayer = null; }
+  if (boundaryLayer) { map.removeLayer(boundaryLayer); boundaryLayer = null; }
+  coverageLayers.forEach(l => map.removeLayer(l));
+  coverageLayers = [];
+
+  const s = frame.settings;
+  heatLayer = L.heatLayer(frame.positions.map(p => [p.latitude, p.longitude, 1]), {
+    radius: s.radius, blur: s.blur, maxZoom: 22, max: s.max,
+    gradient: { 0.0:"#0000ff", 0.3:"#00ffff", 0.5:"#00ff00", 0.7:"#ffff00", 1.0:"#ff0000" }
+  }).addTo(map);
+
+  frame.boundaryChains.forEach(chain => {
+    const line = L.polyline(chain, {
+      color: boundaryColor(), weight: 2.5, opacity: 1, dashArray: "6,4"
+    }).addTo(map);
+    line._isBoundaryLine = true;
+    coverageLayers.push(line);
+  });
+  frame.obstacleChains.forEach(chain => {
+    const line = L.polyline(chain, {
+      color: obstacleColor(), weight: 2.5, opacity: 0.95, dashArray: "4,4"
+    }).addTo(map);
+    line._isBoundaryLine = true;
+    coverageLayers.push(line);
+  });
+
+  // Update the heatmap sidebar counters to reflect this frame
+  const hcF = document.getElementById("hcFilteredCount");
+  const hcT = document.getElementById("hcTotalCount");
+  if (hcF) hcF.textContent = frame.positions.length.toLocaleString();
+  if (hcT) hcT.textContent = frame.totalPositions.toLocaleString();
+  const mHcF = document.getElementById("mHcFilteredCount");
+  const mHcT = document.getElementById("mHcTotalCount");
+  if (mHcF) mHcF.textContent = frame.positions.length.toLocaleString();
+  if (mHcT) mHcT.textContent = frame.totalPositions.toLocaleString();
 }
 
 function updateTimeLapseStatus() {
@@ -1616,16 +1746,24 @@ function setTimeLapseSpeed(speed) {
 
 function exitTimeLapse() {
   if (timeLapsePlaybackTimer !== null) { clearTimeout(timeLapsePlaybackTimer); timeLapsePlaybackTimer = null; }
+  const wasView = timeLapseView;
   timeLapseState = "idle";
+  timeLapseView = null;
   timeLapseFrames = [];
   timeLapseCurrentFrame = 0;
 
-  // Restore UI
-  document.getElementById("tlPeriodRow").style.display = "flex";
+  // Hide the shared floating controls
   document.getElementById("tlControls").style.display = "none";
 
-  // Return to normal coverage view (this repopulates the correct Coverage/Confidence readouts)
-  renderCoverage();
+  // Restore the view's own controls and re-render its normal display
+  if (wasView === "coverage") {
+    document.getElementById("tlPeriodRow").style.display = "flex";
+    if (currentMode === "coverage") renderCoverage();
+  } else if (wasView === "heatmap") {
+    const hc = document.getElementById("heatmapControls");
+    if (hc) { hc.style.opacity = "1"; hc.style.pointerEvents = ""; }
+    if (currentMode === "heat") buildHeatmap();
+  }
 
   // Restore map viewport if we captured it earlier
   if (timeLapseSavedBounds) {
@@ -1878,11 +2016,13 @@ function buildCharts() {
           ticks: {
             color: "#4a7a4a", font: { size: 9 }, maxTicksLimit: 8, maxRotation: 0,
             callback: function(value) {
+              // Local time — for anyone viewing from Norway this renders as
+              // CET/CEST (UTC+1/+2). Consistent with the Time of Day chart.
               const d = new Date(value);
-              const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-              const dd = String(d.getUTCDate()).padStart(2, "0");
-              const hh = String(d.getUTCHours()).padStart(2, "0");
-              const mi = String(d.getUTCMinutes()).padStart(2, "0");
+              const mm = String(d.getMonth() + 1).padStart(2, "0");
+              const dd = String(d.getDate()).padStart(2, "0");
+              const hh = String(d.getHours()).padStart(2, "0");
+              const mi = String(d.getMinutes()).padStart(2, "0");
               return `${mm}-${dd} ${hh}:${mi}`;
             }
           },
@@ -1922,6 +2062,14 @@ function setMapType(type) {
     map.removeLayer(osmLayer); satLayer.addTo(map);
     ["btnSat","mBtnSat"].forEach(b => { const el=document.getElementById(b); if(el) el.classList.add("active"); });
     ["btnOSM","mBtnOSM"].forEach(b => { const el=document.getElementById(b); if(el) el.classList.remove("active"); });
+  }
+  // Boundary lines use colours tuned to the background — repaint them
+  if (timeLapseState !== "idle" && timeLapseFrames.length > 0) {
+    renderTimeLapseFrame(timeLapseFrames[timeLapseCurrentFrame]);
+  } else if (currentMode === "coverage") {
+    redrawBoundary();
+  } else if (currentMode === "heat") {
+    buildHeatmap();
   }
 }
 
