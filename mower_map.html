@@ -639,6 +639,13 @@ function showHeatmap() {
 function buildHeatmap() {
   if (heatLayer) { map.removeLayer(heatLayer); heatLayer = null; }
   if (boundaryLayer) { map.removeLayer(boundaryLayer); boundaryLayer = null; }
+  // Also clear any boundary lines left behind in coverageLayers by a
+  // heatmap time-lapse — otherwise the confidence slider redraws below
+  // the stale lines and appears to have no effect.
+  coverageLayers = coverageLayers.filter(l => {
+    if (l._isBoundaryLine) { map.removeLayer(l); return false; }
+    return true;
+  });
 
   const radius = parseInt(document.getElementById("hcRadius").value);
   const blur = parseInt(document.getElementById("hcBlur").value);
@@ -670,7 +677,7 @@ function buildHeatmap() {
     const smoothedLines = chains.map(chain => {
       const smoothed = chaikinSmooth(chain, smoothing);
       return L.polyline(smoothed, {
-        color: boundaryColor(), weight: 1.8, opacity: 0.95, dashArray: smoothing > 0 ? null : "4,4"
+        color: "#7ec87e", weight: 1.8, opacity: 0.95, dashArray: smoothing > 0 ? null : "4,4"
       });
     });
     boundaryLayer = L.layerGroup(smoothedLines).addTo(map);
@@ -1046,20 +1053,32 @@ function computeBoundary() {
   // Chain segments into closed polylines
   const chains = chainFloatSegments(segmentsLL);
 
-  // Classify chains. The OUTER boundary loop surrounds the garden, so its
-  // centroid sits in a reachable cell (densely-mowed core). An OBSTACLE loop
-  // surrounds an unreachable patch (tree, structure, etc.), so its centroid
-  // sits in a cell that is NOT in the reachable set.
+  // Classify chains. Find a seed point guaranteed to be inside the garden —
+  // the densest cell in the reachable set — then the chain that *contains*
+  // the seed (point-in-polygon test) is the outer boundary, and every other
+  // closed loop is an interior obstacle. This is robust for any garden
+  // shape, including ones with a big central unreachable region (like a
+  // cabin), where the old centroid test would misclassify the outer boundary
+  // as an obstacle because its geometric centre fell inside the cabin.
   const boundaryChains = [];
   const obstacleChains = [];
 
+  let seedMaxD = 0, seedKey = null;
+  if (reachable && cachedGrid) {
+    reachable.forEach(k => {
+      const d = cachedGrid[k] || 0;
+      if (d > seedMaxD) { seedMaxD = d; seedKey = k; }
+    });
+  }
+  let seedPoint = null;
+  if (seedKey) {
+    const [sgx, sgy] = seedKey.split(",").map(Number);
+    seedPoint = [sgy * COVER_CELL_LAT, sgx * COVER_CELL_LON];
+  }
+
   chains.forEach(chain => {
     if (chain.length < 4) return;
-    const centLat = chain.reduce((s, p) => s + p[0], 0) / chain.length;
-    const centLon = chain.reduce((s, p) => s + p[1], 0) / chain.length;
-    const cgx = Math.round(centLon / COVER_CELL_LON);
-    const cgy = Math.round(centLat / COVER_CELL_LAT);
-    if (reachable.has(`${cgx},${cgy}`)) boundaryChains.push(chain);
+    if (seedPoint && pointInPolygon(seedPoint, chain)) boundaryChains.push(chain);
     else obstacleChains.push(chain);
   });
 
@@ -1073,6 +1092,23 @@ function computeBoundary() {
     confidence,
     sessionCount
   };
+}
+
+// Ray-casting point-in-polygon test. Point and polygon vertices are
+// [lat, lon]; we treat longitude as X and latitude as Y — direction of
+// axes doesn't matter as long as it's consistent.
+function pointInPolygon(pt, poly) {
+  const x = pt[1], y = pt[0];
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i][1], yi = poly[i][0];
+    const xj = poly[j][1], yj = poly[j][0];
+    if (((yi > y) !== (yj > y)) &&
+        (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+  return inside;
 }
 
 // Boundary and obstacle colours adapt to the current base layer.
@@ -1383,13 +1419,23 @@ function computeBoundaryFrom(fields, sliderValue) {
 
   const boundaryChains = [];
   const obstacleChains = [];
+
+  let seedMaxD = 0, seedKey = null;
+  if (reachable && fields.grid) {
+    reachable.forEach(k => {
+      const d = fields.grid[k] || 0;
+      if (d > seedMaxD) { seedMaxD = d; seedKey = k; }
+    });
+  }
+  let seedPoint = null;
+  if (seedKey) {
+    const [sgx, sgy] = seedKey.split(",").map(Number);
+    seedPoint = [sgy * COVER_CELL_LAT, sgx * COVER_CELL_LON];
+  }
+
   chains.forEach(chain => {
     if (chain.length < 4) return;
-    const centLat = chain.reduce((s, p) => s + p[0], 0) / chain.length;
-    const centLon = chain.reduce((s, p) => s + p[1], 0) / chain.length;
-    const cgx = Math.round(centLon / COVER_CELL_LON);
-    const cgy = Math.round(centLat / COVER_CELL_LAT);
-    if (reachable && reachable.has(`${cgx},${cgy}`)) boundaryChains.push(chain);
+    if (seedPoint && pointInPolygon(seedPoint, chain)) boundaryChains.push(chain);
     else obstacleChains.push(chain);
   });
   return { boundaryChains, obstacleChains };
@@ -1754,6 +1800,13 @@ function exitTimeLapse() {
 
   // Hide the shared floating controls
   document.getElementById("tlControls").style.display = "none";
+
+  // Clear any layers the time-lapse renderers pushed into coverageLayers
+  // (both coverage and heatmap frames use this bucket). Without this, stale
+  // boundary lines from the last time-lapse frame linger over the underlying
+  // view and appear frozen through subsequent redraws.
+  coverageLayers.forEach(l => map.removeLayer(l));
+  coverageLayers = [];
 
   // Restore the view's own controls and re-render its normal display
   if (wasView === "coverage") {
