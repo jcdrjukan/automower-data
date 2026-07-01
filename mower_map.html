@@ -242,13 +242,36 @@
 
   <!-- Coverage controls -->
   <div class="coverage-controls" id="coverageControls">
-    <div class="coverage-period-row">
+    <div class="coverage-period-row" id="tlPeriodRow">
       <button class="period-btn" id="pBtnSession" onclick="setCoveragePeriod('session')">Last Session</button>
       <button class="period-btn active" id="pBtnToday" onclick="setCoveragePeriod('today')">Today</button>
       <button class="period-btn" id="pBtnYesterday" onclick="setCoveragePeriod('yesterday')">Yesterday</button>
       <button class="period-btn" id="pBtn3days" onclick="setCoveragePeriod('3days')">3 Days</button>
       <button class="period-btn" id="pBtn7days" onclick="setCoveragePeriod('7days')">7 Days</button>
       <button class="period-btn" id="pBtnAll" onclick="setCoveragePeriod('all')">All</button>
+      <button class="period-btn" id="pBtnTimeLapse" onclick="startTimeLapse()" style="border-color:#7ec87e;color:#b0e8b0">▶ Time-lapse</button>
+    </div>
+    <div id="tlControls" style="display:none;flex-direction:column;gap:6px;align-items:stretch;width:100%">
+      <div id="tlStatus" style="font-size:11px;color:#7ec87e;text-align:center">Preparing…</div>
+      <div id="tlBuildProgress" style="height:3px;background:#2a4a2a;border-radius:2px;overflow:hidden">
+        <div id="tlBuildBar" style="height:100%;width:0%;background:#5cdb5c;transition:width 0.1s"></div>
+      </div>
+      <div id="tlPlaybackRow" style="display:none;align-items:center;gap:4px">
+        <button class="period-btn" onclick="stepTimeLapse(-1)" title="Previous day">⏮</button>
+        <button class="period-btn" id="tlPlayBtn" onclick="togglePlayTimeLapse()" title="Play/pause">▶</button>
+        <button class="period-btn" onclick="stepTimeLapse(1)" title="Next day">⏭</button>
+        <input type="range" id="tlScrubber" min="0" max="0" value="0" step="1"
+          style="flex:1;min-width:80px" oninput="seekTimeLapse(parseInt(this.value))">
+        <select id="tlSpeed" onchange="setTimeLapseSpeed(parseFloat(this.value))"
+          style="background:#162416;color:#7ec87e;border:1px solid #2a4a2a;border-radius:3px;font-size:10px;padding:2px 4px">
+          <option value="0.25">¼×</option>
+          <option value="0.5">½×</option>
+          <option value="1" selected>1×</option>
+          <option value="2">2×</option>
+          <option value="4">4×</option>
+        </select>
+        <button class="period-btn" onclick="exitTimeLapse()" title="Exit time-lapse">✕</button>
+      </div>
     </div>
     <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:#4a7a4a">
       <span>Density threshold</span>
@@ -720,6 +743,8 @@ let boundaryPolygon = null;
 let gardenCells = null; // cached boundary cell set
 
 function hideCoverage() {
+  // If a time-lapse is active, close it cleanly first
+  if (timeLapseState !== "idle") exitTimeLapse();
   document.getElementById("coverageControls").classList.remove("visible");
   coverageLayers.forEach(l => map.removeLayer(l));
   coverageLayers = [];
@@ -1181,6 +1206,431 @@ function renderCoverage() {
   if (cutRects.length > 0) {
     const bounds = cutLayer.getLayers().reduce((b, r) => b.extend(r.getBounds()), L.latLngBounds([]));
     if (bounds.isValid()) map.fitBounds(bounds, { padding: [40,40] });
+  }
+}
+
+// ── TIME-LAPSE ────────────────────────────────────────────────────────────
+//
+// Churns through the full dataset one day at a time, computing a boundary
+// snapshot (density fields + marching-squares contour) for every day up to
+// 22:00 Norway time. Frames are cached during the build so replay is a fast
+// swap-in-swap-out rather than re-computation.
+
+let timeLapseState = "idle";        // idle | building | ready | playing | paused
+let timeLapseFrames = [];           // [{ date, cutCells, boundaryChains, obstacleChains, sessionsCount, coveragePct }]
+let timeLapseCurrentFrame = 0;
+let timeLapsePlaybackTimer = null;
+let timeLapseSpeed = 1;             // 1× = 500 ms/frame
+let timeLapseSavedBounds = null;    // map viewport to restore on exit
+
+// Pure computation of density grid + Gaussian-blurred field + reachable core
+// from an arbitrary subset of sessions. Does not touch the module-level
+// cached* variables used by the normal Coverage view.
+function computeFieldsFrom(sessions) {
+  const positions = sessions.flatMap(s => s.positions);
+  if (positions.length < 10) return null;
+
+  const grid = {};
+  positions.forEach(p => {
+    const key = `${Math.round(p.longitude/COVER_CELL_LON)},${Math.round(p.latitude/COVER_CELL_LAT)}`;
+    grid[key] = (grid[key] || 0) + 1;
+  });
+  const getD = (gx, gy) => grid[`${gx},${gy}`] || 0;
+
+  const blurred = {};
+  const toBlur = new Set();
+  Object.keys(grid).forEach(key => {
+    const [gx, gy] = key.split(",").map(Number);
+    for (let dx=-2; dx<=2; dx++) for (let dy=-2; dy<=2; dy++) toBlur.add(`${gx+dx},${gy+dy}`);
+  });
+  toBlur.forEach(key => {
+    const [gx, gy] = key.split(",").map(Number);
+    blurred[key] = (
+      getD(gx-1,gy-1)*1 + getD(gx,gy-1)*2 + getD(gx+1,gy-1)*1 +
+      getD(gx-1,gy  )*2 + getD(gx,gy  )*4 + getD(gx+1,gy  )*2 +
+      getD(gx-1,gy+1)*1 + getD(gx,gy+1)*2 + getD(gx+1,gy+1)*1
+    ) / 16;
+  });
+
+  const counts = Object.values(grid).sort((a,b) => a-b);
+  const coreThreshold = Math.max(2, counts[Math.floor(counts.length * 0.5)]);
+  const coreCells = new Set(
+    Object.entries(grid).filter(([,v]) => v >= coreThreshold).map(([k]) => k)
+  );
+  let maxCount = 0, seedKey = null;
+  Object.entries(grid).forEach(([key, count]) => {
+    if (count > maxCount && coreCells.has(key)) { maxCount = count; seedKey = key; }
+  });
+  const reachable = new Set();
+  if (seedKey) {
+    const queue = [seedKey]; reachable.add(seedKey);
+    while (queue.length > 0) {
+      const key = queue.shift();
+      const [gx, gy] = key.split(",").map(Number);
+      [[0,1],[0,-1],[1,0],[-1,0]].forEach(([dx,dy]) => {
+        const nk = `${gx+dx},${gy+dy}`;
+        if (!reachable.has(nk) && coreCells.has(nk)) { reachable.add(nk); queue.push(nk); }
+      });
+    }
+  }
+  return { grid, blurred, reachable };
+}
+
+// Marching-squares boundary from precomputed fields + slider percentile.
+// Mirrors computeBoundary() but takes explicit fields rather than reading
+// cached* module vars, so it can be called on any historical subset.
+function computeBoundaryFrom(fields, sliderValue) {
+  if (!fields || !fields.blurred) return { boundaryChains: [], obstacleChains: [] };
+  const blurred = fields.blurred;
+  const reachable = fields.reachable;
+
+  const nonZeroVals = Object.values(blurred).filter(v => v > 0).sort((a, b) => a - b);
+  if (nonZeroVals.length === 0) return { boundaryChains: [], obstacleChains: [] };
+  const cutoffIdx = Math.floor(nonZeroVals.length * (sliderValue / 100));
+  const threshold = nonZeroVals[Math.max(0, Math.min(cutoffIdx, nonZeroVals.length - 1))];
+
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  Object.keys(blurred).forEach(key => {
+    const [gx, gy] = key.split(",").map(Number);
+    if (gx < minX) minX = gx;
+    if (gx > maxX) maxX = gx;
+    if (gy < minY) minY = gy;
+    if (gy > maxY) maxY = gy;
+  });
+
+  const getD = (gx, gy) => blurred[`${gx},${gy}`] || 0;
+  const segments = [];
+
+  for (let gx = minX - 1; gx <= maxX; gx++) {
+    for (let gy = minY - 1; gy <= maxY; gy++) {
+      const bl = getD(gx, gy);
+      const br = getD(gx + 1, gy);
+      const tl = getD(gx, gy + 1);
+      const tr = getD(gx + 1, gy + 1);
+
+      const blIn = bl >= threshold;
+      const brIn = br >= threshold;
+      const tlIn = tl >= threshold;
+      const trIn = tr >= threshold;
+
+      if (blIn === brIn && brIn === tlIn && tlIn === trIn) continue;
+
+      const interp = (v1, v2) => (threshold - v1) / (v2 - v1);
+      const bottomT = (blIn !== brIn) ? interp(bl, br) : null;
+      const rightT  = (brIn !== trIn) ? interp(br, tr) : null;
+      const topT    = (tlIn !== trIn) ? interp(tl, tr) : null;
+      const leftT   = (blIn !== tlIn) ? interp(bl, tl) : null;
+
+      const bottomPt = bottomT !== null ? [gx + bottomT, gy] : null;
+      const rightPt  = rightT  !== null ? [gx + 1, gy + rightT] : null;
+      const topPt    = topT    !== null ? [gx + topT, gy + 1] : null;
+      const leftPt   = leftT   !== null ? [gx, gy + leftT] : null;
+
+      let idx = 0;
+      if (blIn) idx |= 1;
+      if (brIn) idx |= 2;
+      if (trIn) idx |= 4;
+      if (tlIn) idx |= 8;
+
+      switch (idx) {
+        case 1: case 14: segments.push([leftPt, bottomPt]); break;
+        case 2: case 13: segments.push([bottomPt, rightPt]); break;
+        case 3: case 12: segments.push([leftPt, rightPt]); break;
+        case 4: case 11: segments.push([rightPt, topPt]); break;
+        case 6: case 9:  segments.push([bottomPt, topPt]); break;
+        case 7: case 8:  segments.push([leftPt, topPt]); break;
+        case 5: {
+          const centre = (bl + br + tl + tr) / 4;
+          if (centre >= threshold) { segments.push([bottomPt, rightPt]); segments.push([leftPt, topPt]); }
+          else { segments.push([leftPt, bottomPt]); segments.push([topPt, rightPt]); }
+          break;
+        }
+        case 10: {
+          const centre = (bl + br + tl + tr) / 4;
+          if (centre >= threshold) { segments.push([leftPt, bottomPt]); segments.push([rightPt, topPt]); }
+          else { segments.push([leftPt, topPt]); segments.push([bottomPt, rightPt]); }
+          break;
+        }
+      }
+    }
+  }
+
+  const segmentsLL = segments.map(seg => seg.map(p => [
+    p[1] * COVER_CELL_LAT,
+    p[0] * COVER_CELL_LON
+  ]));
+  const chains = chainFloatSegments(segmentsLL);
+
+  const boundaryChains = [];
+  const obstacleChains = [];
+  chains.forEach(chain => {
+    if (chain.length < 4) return;
+    const centLat = chain.reduce((s, p) => s + p[0], 0) / chain.length;
+    const centLon = chain.reduce((s, p) => s + p[1], 0) / chain.length;
+    const cgx = Math.round(centLon / COVER_CELL_LON);
+    const cgy = Math.round(centLat / COVER_CELL_LAT);
+    if (reachable && reachable.has(`${cgx},${cgy}`)) boundaryChains.push(chain);
+    else obstacleChains.push(chain);
+  });
+  return { boundaryChains, obstacleChains };
+}
+
+// Cut cells (fine-grid) for a subset of sessions — same rasterisation as
+// renderCoverage() uses.
+function computeCutCellsFrom(sessions) {
+  const dispCells = new Set();
+  sessions.forEach(session => {
+    const positions = session.positions;
+    for (let i = 0; i < positions.length; i++) {
+      const p = positions[i];
+      dispCells.add(`${Math.round(p.longitude/DISP_CELL_LON)},${Math.round(p.latitude/DISP_CELL_LAT)}`);
+      if (i < positions.length - 1) {
+        const p2 = positions[i+1];
+        const steps = Math.ceil(Math.sqrt(
+          Math.pow((p2.longitude-p.longitude)/DISP_CELL_LON, 2) +
+          Math.pow((p2.latitude-p.latitude)/DISP_CELL_LAT, 2)
+        ) * 1.5);
+        for (let s = 1; s < steps; s++) {
+          const t = s/steps;
+          const iLon = p.longitude + (p2.longitude-p.longitude)*t;
+          const iLat = p.latitude + (p2.latitude-p.latitude)*t;
+          dispCells.add(`${Math.round(iLon/DISP_CELL_LON)},${Math.round(iLat/DISP_CELL_LAT)}`);
+        }
+      }
+    }
+  });
+  return dispCells;
+}
+
+// Enumerate the distinct calendar dates present in the dataset. Uses UTC
+// dates from the timestamps directly — the small skew relative to Norway
+// local time doesn't matter for a per-day time-lapse.
+function distinctDates() {
+  const set = new Set();
+  allData.forEach(s => set.add(s.timestamp.slice(0, 10)));
+  return [...set].sort();
+}
+
+async function startTimeLapse() {
+  if (allData.length === 0 || timeLapseState !== "idle") return;
+
+  timeLapseState = "building";
+  timeLapseFrames = [];
+  timeLapseCurrentFrame = 0;
+  timeLapseSavedBounds = map.getBounds();
+
+  // Show time-lapse controls, hide period buttons
+  document.getElementById("tlPeriodRow").style.display = "none";
+  document.getElementById("tlControls").style.display = "flex";
+  document.getElementById("tlPlaybackRow").style.display = "none";
+  document.getElementById("tlBuildProgress").style.display = "block";
+  document.getElementById("tlStatus").textContent = "Building…";
+  document.getElementById("tlBuildBar").style.width = "0%";
+
+  const dates = distinctDates();
+  const total = dates.length;
+  const sliderValue = parseFloat(document.getElementById("sobelThreshold").value);
+
+  for (let i = 0; i < total; i++) {
+    if (timeLapseState !== "building") return; // aborted mid-build
+
+    const day = dates[i];
+    // Sessions on or before 22:00 Norway (= 20:00 UTC summer) of this day
+    const cutoffISO = day + "T20:00:00Z";
+    const sessions = allData.filter(s => s.timestamp <= cutoffISO);
+    if (sessions.length === 0) continue;
+
+    const fields = computeFieldsFrom(sessions);
+    const boundary = computeBoundaryFrom(fields, sliderValue);
+    const cutCells = computeCutCellsFrom(sessions);
+
+    // Compute coverage % using the same widened-reachable garden the live view uses
+    let coveragePct = null;
+    if (fields && fields.reachable && fields.reachable.size > 0) {
+      const garden = new Set(fields.reachable);
+      fields.reachable.forEach(key => {
+        const [gx, gy] = key.split(",").map(Number);
+        [[0,1],[0,-1],[1,0],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([dx,dy]) => {
+          garden.add(`${gx+dx},${gy+dy}`);
+        });
+      });
+      // Convert display cells back to coarse-grid cells for the pct
+      const pctCells = new Set();
+      sessions.forEach(session => {
+        session.positions.forEach(p => {
+          pctCells.add(`${Math.round(p.longitude/COVER_CELL_LON)},${Math.round(p.latitude/COVER_CELL_LAT)}`);
+        });
+      });
+      const covered = [...pctCells].filter(k => garden.has(k)).length;
+      coveragePct = Math.round(covered / garden.size * 100);
+    }
+
+    const frame = {
+      date: day,
+      cutCells,
+      boundaryChains: boundary.boundaryChains,
+      obstacleChains: boundary.obstacleChains,
+      sessionsCount: sessions.length,
+      coveragePct
+    };
+    timeLapseFrames.push(frame);
+    timeLapseCurrentFrame = timeLapseFrames.length - 1;
+
+    // Paint this frame as it's produced
+    renderTimeLapseFrame(frame);
+
+    // Update building progress readout
+    document.getElementById("tlStatus").textContent =
+      `Building ${i + 1} / ${total} · ${day}`;
+    document.getElementById("tlBuildBar").style.width = `${(i + 1) / total * 100}%`;
+
+    // Yield to the browser so the paint and progress bar update visibly
+    await new Promise(r => setTimeout(r, 0));
+  }
+
+  // Build complete — reveal playback controls
+  timeLapseState = "ready";
+  document.getElementById("tlBuildProgress").style.display = "none";
+  document.getElementById("tlPlaybackRow").style.display = "flex";
+  const scrubber = document.getElementById("tlScrubber");
+  scrubber.max = String(Math.max(0, timeLapseFrames.length - 1));
+  scrubber.value = String(timeLapseCurrentFrame);
+  updateTimeLapseStatus();
+}
+
+function renderTimeLapseFrame(frame) {
+  coverageLayers.forEach(l => map.removeLayer(l));
+  coverageLayers = [];
+
+  const VISUAL_LAT = DISP_CELL_LAT * 0.55;
+  const VISUAL_LON = DISP_CELL_LON * 0.55;
+  const cutRects = [];
+  frame.cutCells.forEach(key => {
+    const [gx, gy] = key.split(",").map(Number);
+    const lat = gy * DISP_CELL_LAT;
+    const lon = gx * DISP_CELL_LON;
+    cutRects.push(L.rectangle([
+      [lat - VISUAL_LAT, lon - VISUAL_LON],
+      [lat + VISUAL_LAT, lon + VISUAL_LON]
+    ], { color: "none", fillColor: "#5cdb5c", fillOpacity: 0.55, weight: 0 }));
+  });
+  if (cutRects.length > 0) {
+    const cutLayer = L.layerGroup(cutRects).addTo(map);
+    coverageLayers.push(cutLayer);
+  }
+
+  frame.boundaryChains.forEach(chain => {
+    const line = L.polyline(chain, {
+      color: "#ffee00", weight: 2.5, opacity: 1, dashArray: "6,4"
+    }).addTo(map);
+    line._isBoundaryLine = true;
+    coverageLayers.push(line);
+  });
+  frame.obstacleChains.forEach(chain => {
+    const line = L.polyline(chain, {
+      color: "#ff3333", weight: 2.5, opacity: 0.95, dashArray: "4,4"
+    }).addTo(map);
+    line._isBoundaryLine = true;
+    coverageLayers.push(line);
+  });
+
+  // Update the Coverage/Confidence readouts to reflect this frame
+  document.getElementById("coveragePct").textContent =
+    frame.coveragePct !== null ? frame.coveragePct + "%" : "—";
+  document.getElementById("coverageDetail").textContent = "";
+  document.getElementById("boundaryConfidence").textContent =
+    `Sessions: ${frame.sessionsCount}` +
+    (frame.obstacleChains.length > 0 ? ` · Obstacles: ${frame.obstacleChains.length}` : "");
+}
+
+function updateTimeLapseStatus() {
+  if (timeLapseFrames.length === 0) return;
+  const frame = timeLapseFrames[timeLapseCurrentFrame];
+  document.getElementById("tlStatus").textContent =
+    `Day ${timeLapseCurrentFrame + 1} / ${timeLapseFrames.length} · ${frame.date}`;
+  document.getElementById("tlScrubber").value = String(timeLapseCurrentFrame);
+  document.getElementById("tlPlayBtn").textContent =
+    timeLapseState === "playing" ? "⏸" : "▶";
+}
+
+function togglePlayTimeLapse() {
+  if (timeLapseState === "playing") pauseTimeLapse();
+  else playTimeLapse();
+}
+
+function playTimeLapse() {
+  if (timeLapseFrames.length === 0) return;
+  if (timeLapseState !== "ready" && timeLapseState !== "paused") return;
+  // If sitting at last frame, restart from beginning
+  if (timeLapseCurrentFrame >= timeLapseFrames.length - 1) timeLapseCurrentFrame = 0;
+  timeLapseState = "playing";
+  renderTimeLapseFrame(timeLapseFrames[timeLapseCurrentFrame]);
+  updateTimeLapseStatus();
+
+  const step = () => {
+    if (timeLapseState !== "playing") return;
+    timeLapseCurrentFrame++;
+    if (timeLapseCurrentFrame >= timeLapseFrames.length) {
+      timeLapseCurrentFrame = timeLapseFrames.length - 1;
+      timeLapseState = "ready";
+      updateTimeLapseStatus();
+      return;
+    }
+    renderTimeLapseFrame(timeLapseFrames[timeLapseCurrentFrame]);
+    updateTimeLapseStatus();
+    timeLapsePlaybackTimer = setTimeout(step, 500 / timeLapseSpeed);
+  };
+  timeLapsePlaybackTimer = setTimeout(step, 500 / timeLapseSpeed);
+}
+
+function pauseTimeLapse() {
+  if (timeLapsePlaybackTimer !== null) { clearTimeout(timeLapsePlaybackTimer); timeLapsePlaybackTimer = null; }
+  timeLapseState = "paused";
+  updateTimeLapseStatus();
+}
+
+function stepTimeLapse(delta) {
+  pauseTimeLapse();
+  timeLapseCurrentFrame = Math.max(0, Math.min(timeLapseFrames.length - 1, timeLapseCurrentFrame + delta));
+  if (timeLapseFrames.length > 0) renderTimeLapseFrame(timeLapseFrames[timeLapseCurrentFrame]);
+  updateTimeLapseStatus();
+}
+
+function seekTimeLapse(frameIdx) {
+  pauseTimeLapse();
+  timeLapseCurrentFrame = Math.max(0, Math.min(timeLapseFrames.length - 1, frameIdx));
+  if (timeLapseFrames.length > 0) renderTimeLapseFrame(timeLapseFrames[timeLapseCurrentFrame]);
+  updateTimeLapseStatus();
+}
+
+function setTimeLapseSpeed(speed) {
+  timeLapseSpeed = speed;
+  // If currently playing, apply the new speed to the next tick
+  if (timeLapseState === "playing") {
+    if (timeLapsePlaybackTimer !== null) { clearTimeout(timeLapsePlaybackTimer); timeLapsePlaybackTimer = null; }
+    // Continue playing from current frame
+    timeLapseState = "paused";
+    playTimeLapse();
+  }
+}
+
+function exitTimeLapse() {
+  if (timeLapsePlaybackTimer !== null) { clearTimeout(timeLapsePlaybackTimer); timeLapsePlaybackTimer = null; }
+  timeLapseState = "idle";
+  timeLapseFrames = [];
+  timeLapseCurrentFrame = 0;
+
+  // Restore UI
+  document.getElementById("tlPeriodRow").style.display = "flex";
+  document.getElementById("tlControls").style.display = "none";
+
+  // Return to normal coverage view (this repopulates the correct Coverage/Confidence readouts)
+  renderCoverage();
+
+  // Restore map viewport if we captured it earlier
+  if (timeLapseSavedBounds) {
+    map.fitBounds(timeLapseSavedBounds);
+    timeLapseSavedBounds = null;
   }
 }
 
