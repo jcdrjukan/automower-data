@@ -237,8 +237,10 @@
   </div>
 </div>
 
+<!-- FAB lives OUTSIDE #map so it stays visible when Stats view hides the map -->
+<button class="fab" id="fabBtn" onclick="toggleMenu()">☰</button>
+
 <div id="map" style="position:relative;flex:1;background:#0a140a">
-  <button class="fab" id="fabBtn" onclick="toggleMenu()">☰</button>
 
   <!-- Time-lapse floating controls (visible during time-lapse for either view) -->
   <div id="tlControls" style="display:none;position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:1001;background:rgba(15,26,15,0.95);border:1px solid #1e3a1e;border-radius:8px;padding:10px 14px;flex-direction:column;gap:8px;align-items:stretch;min-width:280px;max-width:90%;backdrop-filter:blur(4px)">
