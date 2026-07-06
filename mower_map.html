@@ -220,7 +220,7 @@
     <canvas id="chartSessionsPerDay"></canvas>
   </div>
   <div class="chart-card">
-    <div class="chart-title">Unique Areas Visited Per Day</div>
+    <div class="chart-title">Battery Discharge Rate — Weekly Avg (min per 63-pt drop)</div>
     <canvas id="chartCumulative"></canvas>
   </div>
   <div class="chart-card">
@@ -1892,24 +1892,93 @@ function buildCharts() {
     options: { ...CHART_DEFAULTS }
   });
 
-  // --- Chart 3: Unique grid cells visited per day ---
-  const uniquePerDay = dates.map(d => {
-    const dayCells = new Set();
-    byDate[d].forEach(s => {
-      s.positions.forEach(p => {
-        dayCells.add(`${Math.round(p.longitude/CELL_SIZE)},${Math.round(p.latitude/CELL_SIZE)}`);
-      });
-    });
-    return dayCells.size;
+  // --- Chart 3: Battery discharge rate, weekly avg (min per 63-pt drop) ---
+  // Segmentation heuristic matches battery_health_analysis.py / mower-battery-dashboard.html:
+  // min_drop=10, max_gap_minutes=90, noise_tolerance=3. Prefers mower_report_time over
+  // timestamp when both present (per idea doc's data quirks note).
+  const DISCHARGE_MIN_DROP = 10;
+  const DISCHARGE_MAX_GAP_MIN = 90;
+  const DISCHARGE_NOISE_TOLERANCE = 3;
+  const DISCHARGE_WEEK_MIN_DROP_TOTAL = 60; // gate: need ~1 full cycle's worth of drop before plotting a week
+
+  const battSessions = allData
+    .filter(s => s.battery != null)
+    .map(s => ({ t: new Date(s.mower_report_time || s.timestamp).getTime(), battery: s.battery }))
+    .filter(s => !isNaN(s.t))
+    .sort((a, b) => a.t - b.t);
+
+  function isoWeekStart(ms) {
+    const d = new Date(ms);
+    const utc = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const dow = (utc.getUTCDay() + 6) % 7; // Monday = 0
+    utc.setUTCDate(utc.getUTCDate() - dow);
+    return utc.toISOString().slice(0, 10);
+  }
+
+  const weekTotals = {}; // weekKey -> { durationMin, drop }
+  let segStart = null, segPrev = null;
+
+  function finalizeSegment() {
+    if (!segStart || !segPrev) return;
+    const drop = segStart.battery - segPrev.battery;
+    if (drop >= DISCHARGE_MIN_DROP) {
+      const durationMin = (segPrev.t - segStart.t) / 60000;
+      const wk = isoWeekStart(segStart.t);
+      if (!weekTotals[wk]) weekTotals[wk] = { durationMin: 0, drop: 0 };
+      weekTotals[wk].durationMin += durationMin;
+      weekTotals[wk].drop += drop;
+    }
+  }
+
+  battSessions.forEach(s => {
+    if (!segStart) { segStart = s; segPrev = s; return; }
+    const gapMin = (s.t - segPrev.t) / 60000;
+    const delta = s.battery - segPrev.battery; // negative = discharging
+    if (gapMin <= DISCHARGE_MAX_GAP_MIN && delta <= DISCHARGE_NOISE_TOLERANCE) {
+      segPrev = s; // still the same discharge run
+    } else {
+      finalizeSegment();
+      segStart = s; segPrev = s;
+    }
   });
-  charts.newCells = new Chart(document.getElementById("chartCumulative"), {
-    type: "bar",
+  finalizeSegment();
+
+  const weekKeys = Object.keys(weekTotals)
+    .filter(wk => weekTotals[wk].drop >= DISCHARGE_WEEK_MIN_DROP_TOTAL)
+    .sort();
+  const weeklyRate = weekKeys.map(wk => {
+    const { durationMin, drop } = weekTotals[wk];
+    return Math.round((durationMin / drop) * 63 * 10) / 10; // minutes per 63-pt drop
+  });
+
+  // Pad the y-axis so a mostly-flat line still shows visible movement,
+  // rather than defaulting to a 0-based scale that flattens everything.
+  let yMin, yMax;
+  if (weeklyRate.length) {
+    const dataMin = Math.min(...weeklyRate), dataMax = Math.max(...weeklyRate);
+    const pad = Math.max((dataMax - dataMin) * 0.5, 3);
+    yMin = Math.max(0, Math.floor(dataMin - pad));
+    yMax = Math.ceil(dataMax + pad);
+  }
+
+  charts.batteryWeekly = new Chart(document.getElementById("chartCumulative"), {
+    type: "line",
     data: {
-      labels: dates.map(d => fmtDate(d)),
-      datasets: [{ label: "Unique Areas", data: uniquePerDay,
-        backgroundColor: "#1e4a3a", borderColor: "#4ab8a0", borderWidth: 1 }]
+      labels: weekKeys.map(fmtDate),
+      datasets: [{ label: "min / 63-pt drop", data: weeklyRate,
+        borderColor: "#4ab8a0", backgroundColor: "rgba(74,184,160,0.1)",
+        borderWidth: 2, pointRadius: 3, pointBackgroundColor: "#4ab8a0",
+        fill: true, tension: 0.2 }]
     },
-    options: { ...CHART_DEFAULTS, plugins: { legend: { display: false } } }
+    options: {
+      ...CHART_DEFAULTS,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: "#4a7a4a", font: { size: 10 } }, grid: { color: "#1e3a1e" } },
+        y: { ticks: { color: "#4a7a4a", font: { size: 10 } }, grid: { color: "#1e3a1e" },
+          min: yMin, max: yMax }
+      }
+    }
   });
 
   // --- Chart 4: Rain Parker interventions ---
