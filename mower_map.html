@@ -2080,11 +2080,11 @@ function buildCharts() {
 
   const batteryPeriodBtns = `
     <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap;">
-      <button onclick="setBatteryPeriod('today')" id="bpToday" style="padding:3px 8px;border-radius:3px;border:1px solid #2a4a2a;background:#162416;color:#7ec87e;font-size:10px;cursor:pointer">Today</button>
+      <button onclick="setBatteryPeriod('today')" id="bpToday" style="padding:3px 8px;border-radius:3px;border:1px solid #7ec87e;background:#1e4a1e;color:#b0e8b0;font-size:10px;cursor:pointer">Today</button>
       <button onclick="setBatteryPeriod('yesterday')" id="bpYesterday" style="padding:3px 8px;border-radius:3px;border:1px solid #2a4a2a;background:#162416;color:#7ec87e;font-size:10px;cursor:pointer">Yesterday</button>
       <button onclick="setBatteryPeriod('3days')" id="bpThree" style="padding:3px 8px;border-radius:3px;border:1px solid #2a4a2a;background:#162416;color:#7ec87e;font-size:10px;cursor:pointer">3 Days</button>
       <button onclick="setBatteryPeriod('7days')" id="bpSeven" style="padding:3px 8px;border-radius:3px;border:1px solid #2a4a2a;background:#162416;color:#7ec87e;font-size:10px;cursor:pointer">7 Days</button>
-      <button onclick="setBatteryPeriod('all')" id="bpAll" style="padding:3px 8px;border-radius:3px;border:1px solid #7ec87e;background:#1e4a1e;color:#b0e8b0;font-size:10px;cursor:pointer">All</button>
+      <button onclick="setBatteryPeriod('all')" id="bpAll" style="padding:3px 8px;border-radius:3px;border:1px solid #2a4a2a;background:#162416;color:#7ec87e;font-size:10px;cursor:pointer">All</button>
     </div>`;
 
   // Inject period buttons above the canvas.
@@ -2098,7 +2098,7 @@ function buildCharts() {
   newRow.classList.add("battery-period-row");
   batteryCard.insertBefore(newRow, batteryCard.querySelector("canvas"));
 
-  window._batteryPeriod = "all";
+  window._batteryPeriod = "today";
   window.setBatteryPeriod = function(period) {
     window._batteryPeriod = period;
     // Update button styles
@@ -2124,7 +2124,7 @@ function buildCharts() {
     data: {
       datasets: [{
         label: "Battery %",
-        data: getBatteryDataForPeriod("all"),
+        data: getBatteryDataForPeriod("today"),
         borderColor: "#5cdb5c",
         backgroundColor: "rgba(92,219,92,0.05)",
         borderWidth: 1.5,
