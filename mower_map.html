@@ -225,10 +225,6 @@
     <canvas id="chartCumulative"></canvas>
   </div>
   <div class="chart-card">
-    <div class="chart-title">Rain Parker — Mowing Sessions vs Rain Interventions</div>
-    <canvas id="chartActivity"></canvas>
-  </div>
-  <div class="chart-card">
     <div class="chart-title">Battery % Over Time</div>
     <canvas id="chartSessionLength"></canvas>
   </div>
@@ -1982,53 +1978,6 @@ function buildCharts() {
     }
   });
 
-  // --- Chart 4: Rain Parker interventions ---
-  // Now reads REAL recorded rain-park events from rain_events.json (written by
-  // the script when it parks/resumes for rain), instead of guessing from gaps.
-
-  const activeDays = {};
-  allData.forEach(s => {
-    const date = s.timestamp.slice(0,10);
-    if (["MOWING","LEAVING"].includes(s.activity)) {
-      activeDays[date] = (activeDays[date] || 0) + 1;
-    }
-  });
-
-  // Count real rain parks per day by their start date. An event still open
-  // (ended === null) counts too, so an ongoing rain park is visible.
-  const rainParkCounts = {};
-  rainEvents.forEach(ev => {
-    if (!ev.started) return;
-    const date = ev.started.slice(0,10);
-    rainParkCounts[date] = (rainParkCounts[date] || 0) + 1;
-  });
-
-  const mowingCounts = dates.map(d => activeDays[d] || 0);
-  const interventionCounts = dates.map(d => rainParkCounts[d] || 0);
-
-  charts.activity = new Chart(document.getElementById("chartActivity"), {
-    type: "bar",
-    data: {
-      labels: dates.map(d => fmtDate(d)),
-      datasets: [
-        { label: "Mowing sessions", data: mowingCounts,
-          backgroundColor: "#2d6b2d", borderColor: "#5cdb5c", borderWidth: 1,
-          stack: "a" },
-        { label: "Rain parks", data: interventionCounts,
-          backgroundColor: "#cc4400", borderColor: "#ff6622", borderWidth: 1,
-          stack: "b" }
-      ]
-    },
-    options: {
-      ...CHART_DEFAULTS,
-      plugins: { legend: { labels: { color: "#7ec87e", font: { size: 10 } } } },
-      scales: {
-        x: { ticks: { color: "#4a7a4a", font: { size: 10 } }, grid: { color: "#1e3a1e" } },
-        y: { ticks: { color: "#4a7a4a", font: { size: 10 } }, grid: { color: "#1e3a1e" }, min: 0 }
-      }
-    }
-  });
-
   // --- Chart 5: Battery % over time with period selector ---
   // Store battery data globally so period buttons can redraw
   window._batteryAllData = allData
@@ -2148,12 +2097,17 @@ function buildCharts() {
             callback: function(value) {
               // Local time — for anyone viewing from Norway this renders as
               // CET/CEST (UTC+1/+2). Consistent with the Time of Day chart.
+              // Axis granularity follows the selected period: a single day
+              // only needs the clock, a multi-day window only needs the date.
               const d = new Date(value);
-              const mm = String(d.getMonth() + 1).padStart(2, "0");
-              const dd = String(d.getDate()).padStart(2, "0");
+              const p = window._batteryPeriod;
               const hh = String(d.getHours()).padStart(2, "0");
               const mi = String(d.getMinutes()).padStart(2, "0");
-              return `${mm}-${dd} ${hh}:${mi}`;
+              if (p === "today" || p === "yesterday") return `${hh}:${mi}`;
+              const mm = String(d.getMonth() + 1).padStart(2, "0");
+              const dd = String(d.getDate()).padStart(2, "0");
+              if (p === "3days" || p === "7days") return `${dd}-${mm}`;
+              return `${dd}-${mm} ${hh}:${mi}`;
             }
           },
           grid: { color: "#1e3a1e" }
