@@ -1162,6 +1162,14 @@ function redrawBoundary() {
 // ── CUT COVERAGE RENDERING ────────────────────────────────────────────────
 
 function renderCoverage() {
+  // Leaflet caches the container's pixel size and only re-measures on a window
+  // resize or an explicit invalidateSize(). In a long-lived tab that size can
+  // go stale or zero (the Stats view hides #map with display:none; a window
+  // resize or monitor change while hidden makes Leaflet record 0x0). fitBounds
+  // then computes a nonsense zoom and the view lands nowhere near the garden —
+  // blank map, unfixable by the in-page Refresh, fixed by any page reload.
+  map.invalidateSize({ animate: false, pan: false });
+
   coverageLayers.forEach(l => map.removeLayer(l));
   coverageLayers = [];
   if (boundaryPolygon) { map.removeLayer(boundaryPolygon); boundaryPolygon = null; }
@@ -1264,7 +1272,11 @@ function renderCoverage() {
   // Fit map to cut area
   if (cutRects.length > 0) {
     const bounds = cutLayer.getLayers().reduce((b, r) => b.extend(r.getBounds()), L.latLngBounds([]));
-    if (bounds.isValid()) map.fitBounds(bounds, { padding: [40,40] });
+    const size = map.getSize();
+    // Padding larger than the container makes getBoundsZoom return garbage.
+    if (bounds.isValid() && size.x > 0 && size.y > 0) {
+      map.fitBounds(bounds, { padding: (size.x > 120 && size.y > 120) ? [40,40] : [0,0] });
+    }
   }
 }
 
